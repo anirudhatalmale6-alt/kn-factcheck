@@ -130,6 +130,12 @@ app.use((req, res, next) => {
   res.locals.sourceTypes = listSourceTypes(true);
   res.locals.SOURCE_TYPE_MAP = sourceTypeMap();
   res.locals.enabledLanguages = listLanguages(true);
+  // Reader's chosen public language (cookie), used across the public site.
+  const _cm = (req.headers.cookie || '').match(/(?:^|;\s*)kn-lang=([a-z-]+)/);
+  const _enabled = res.locals.enabledLanguages.map((l) => l.code);
+  const _def = (res.locals.enabledLanguages.find((l) => l.is_default) || { code: 'en' }).code;
+  res.locals.uiLang = (_cm && _enabled.includes(_cm[1])) ? _cm[1] : _def;
+  res.locals.defaultLangCode = _def;
   res.locals.ROLE_LABEL = ROLE_LABEL;
   res.locals.site_name = settingsGet('site_name', 'Kashmir Fact-Check');
   res.locals.theme = settingsGet('theme', 'light');
@@ -297,13 +303,17 @@ router.get('/', (req, res) => {
   const where = ["s.status = 'published'"]; const args = [];
   if (cat) { where.push('r.final_category = ?'); args.push(cat); }
   if (type) { where.push('s.source_type = ?'); args.push(type); }
+  const uiLang = res.locals.uiLang, def = res.locals.defaultLangCode;
   const items = db.prepare(`
-    SELECT r.*, s.url, s.source_domain, s.raw_title, s.source_type
+    SELECT r.id, r.slug, r.final_category, r.published_at, s.source_domain, s.source_type,
+           COALESCE(tr.public_summary, r.public_summary) AS public_summary
     FROM reviews r JOIN submissions s ON s.id = r.submission_id
+    LEFT JOIN fc_translations tr ON tr.review_id = r.id AND tr.lang = ?
     WHERE ${where.join(' AND ')} ORDER BY r.published_at DESC
-  `).all(...args);
+  `).all(uiLang === def ? '' : uiLang, ...args);
+  const uiDir = (res.locals.enabledLanguages.find((l) => l.code === uiLang) || {}).dir || 'ltr';
   res.render('public-list', {
-    title: res.locals.site_name, items, cat, type,
+    title: res.locals.site_name, items, cat, type, uiLang, uiDir,
     tagline: settingsGet('tagline', ''),
     filtered: !!(cat || type),
     seo: { title: res.locals.site_name, description: settingsGet('tagline', 'Fact-checks of claims circulating about Kashmir.'), url: absUrl(req, '/'), type: 'website' },
@@ -326,7 +336,8 @@ router.get('/fact-check/:slug', (req, res) => {
   const def = defaultLang();
   const have = new Set(db.prepare('SELECT lang FROM fc_translations WHERE review_id = ?').all(item.id).map((x) => x.lang));
   const availLangs = langs.filter((l) => l.code === def || have.has(l.code));
-  let curLang = (req.query.lang && langs.find((l) => l.code === req.query.lang && (l.code === def || have.has(l.code)))) ? req.query.lang : def;
+  const prefer = req.query.lang || res.locals.uiLang;
+  let curLang = langs.find((l) => l.code === prefer && (l.code === def || have.has(l.code))) ? prefer : def;
   let dir = 'ltr';
   let display = { public_summary: item.public_summary, claims, editor_notes: item.editor_notes };
   if (curLang !== def) {

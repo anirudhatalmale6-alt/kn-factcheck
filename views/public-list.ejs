@@ -37,7 +37,7 @@
           <%- include('partials/badge', { cat: it.final_category }) %>
           <span class="tag"><%= SOURCE_TYPE_MAP[it.source_type] || it.source_type || 'website' %></span>
         </div>
-        <div class="fc-summary"><%= it.public_summary %></div>
+        <div class="fc-summary" lang="<%= uiLang %>" dir="<%= uiDir %>"><%= it.public_summary %></div>
         <div class="fc-meta"><%= it.source_domain || 'direct submission' %> &middot; <%= (it.published_at||'').slice(0,10) %></div>
       </a>
     <% }) %>
