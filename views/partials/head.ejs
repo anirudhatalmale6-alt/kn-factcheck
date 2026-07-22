@@ -15,9 +15,11 @@
       <a href="<%= base %>/">Fact-checks</a>
       <% if (user) { %>
         <a href="<%= base %>/admin">Dashboard</a>
+        <a href="<%= base %>/admin/submissions">All URLs</a>
         <% if (can('submit')) { %><a href="<%= base %>/admin/submit">Submit</a><% } %>
         <% if (can('policy')) { %><a href="<%= base %>/admin/policy">Policy</a><% } %>
         <% if (can('categories')) { %><a href="<%= base %>/admin/categories">Categories</a><% } %>
+        <% if (can('source_types')) { %><a href="<%= base %>/admin/source-types">Types</a><% } %>
         <% if (can('users')) { %><a href="<%= base %>/admin/users">Users</a><% } %>
         <% if (can('settings')) { %><a href="<%= base %>/admin/settings">Settings</a><% } %>
         <a href="<%= base %>/admin/2fa">2FA</a>
@@ -25,6 +27,7 @@
           <button class="btn ghost small" type="submit"><%= user.name || user.username %> · Sign out</button>
         </form>
       <% } else { %>
+        <a href="<%= base %>/submit-tip">Submit a tip</a>
         <a href="<%= base %>/admin/login">Staff sign in</a>
       <% } %>
     </nav>

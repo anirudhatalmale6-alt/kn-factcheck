@@ -1,0 +1,47 @@
+<%- include('partials/head') %>
+<h1>All submissions</h1>
+<p class="sub">Every URL that's come in &mdash; whatever its status. Nothing is lost; you can look at, analyse, or publish any of it.</p>
+
+<form method="get" action="<%= base %>/admin/submissions" class="inline" style="margin-bottom:16px">
+  <div><label>Status</label>
+    <select name="status" onchange="this.form.submit()">
+      <option value="" <%= status===''?'selected':'' %>>All</option>
+      <% ['pending','analyzed','published','rejected'].forEach(function(s){ %>
+        <option value="<%= s %>" <%= status===s?'selected':'' %>><%= s %></option>
+      <% }) %>
+    </select>
+  </div>
+  <div><label>Type</label>
+    <select name="type" onchange="this.form.submit()">
+      <option value="" <%= stype===''?'selected':'' %>>All</option>
+      <% sourceTypes.forEach(function(t){ %>
+        <option value="<%= t.key %>" <%= stype===t.key?'selected':'' %>><%= t.label %></option>
+      <% }) %>
+    </select>
+  </div>
+</form>
+
+<% if (!rows.length) { %>
+  <div class="empty">No submissions match.</div>
+<% } else { %>
+  <% rows.forEach(function(r){ %>
+    <div class="card">
+      <div class="row" style="justify-content:space-between;align-items:center">
+        <div class="inline">
+          <span class="tag"><%= SOURCE_TYPE_MAP[r.source_type] || r.source_type || 'website' %></span>
+          <% if (r.status==='published' && r.final_category) { %><%- include('partials/badge', { cat: r.final_category }) %>
+          <% } else if (r.suggested_category) { %><%- include('partials/badge', { cat: r.suggested_category }) %><% } %>
+          <span class="tag"><%= r.status %></span>
+        </div>
+        <span class="meta"><%= (r.created_at||'').slice(0,16) %></span>
+      </div>
+      <h3 style="margin:8px 0 2px">
+        <% if (can('review')) { %><a href="<%= base %>/admin/review/<%= r.id %>"><%= r.raw_title || r.url %></a>
+        <% } else { %><%= r.raw_title || r.url %><% } %>
+      </h3>
+      <div class="meta"><%= r.source_domain %><% if (r.submitter_note) { %> &middot; tip: <%= r.submitter_note.slice(0,120) %><% } %></div>
+      <% if (r.status==='published' && r.slug) { %><div class="meta"><a href="<%= base %>/fact-check/<%= r.slug %>" target="_blank">View live &rarr;</a></div><% } %>
+    </div>
+  <% }) %>
+<% } %>
+<%- include('partials/foot') %>

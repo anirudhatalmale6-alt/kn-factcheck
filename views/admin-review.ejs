@@ -11,7 +11,9 @@
   <div class="kv">
     <div class="k">URL</div><div><a href="<%= sub.url %>" target="_blank" rel="nofollow noopener"><%= sub.url %></a></div>
     <div class="k">Source</div><div><%= sub.source_domain %></div>
+    <div class="k">Type</div><div><span class="tag"><%= SOURCE_TYPE_MAP[sub.source_type] || sub.source_type || 'website' %></span></div>
     <% if (sub.raw_author) { %><div class="k">Author</div><div><%= sub.raw_author %></div><% } %>
+    <% if (sub.submitter_note) { %><div class="k">Tip note</div><div><%= sub.submitter_note %></div><% } %>
   </div>
   <details style="margin-top:6px"><summary class="meta">Scraped text excerpt</summary>
     <div class="excerpt"><%= (sub.raw_text||'').slice(0,4000) %></div>
@@ -20,39 +22,52 @@
 
 <h2>AI assessment</h2>
 <div class="card">
-  <% if (ai && ai.model_used === 'stub') { %>
-    <div class="notice warn">Placeholder assessment (no API key yet).</div>
+  <% if (!ai) { %>
+    <div class="notice">Not analysed yet. Run the AI check against your editorial policy when you're ready.</div>
+    <form method="post" action="<%= base %>/admin/analyse/<%= sub.id %>">
+      <button class="btn" type="submit">Analyse now</button>
+    </form>
+  <% } else { %>
+    <% if (ai.model_used === 'stub') { %><div class="notice warn">Placeholder assessment (no API key yet).</div><% } %>
+    <div class="row">
+      <%- include('partials/badge', { cat: ai.suggested_category }) %>
+      <span class="conf">confidence <%= ai.confidence != null ? (ai.confidence*100).toFixed(0)+'%' : 'n/a' %></span>
+      <span class="conf"><%= ai.model_used || '' %></span>
+    </div>
+    <% if (claims && claims.length) { %>
+      <label style="margin-top:14px">Extracted claims</label>
+      <ul class="claims"><% claims.forEach(function(c){ %><li><%= c %></li><% }) %></ul>
+    <% } %>
+    <label style="margin-top:14px">Reasoning</label>
+    <p style="margin:4px 0 0"><%= ai.reasoning %></p>
+    <form method="post" action="<%= base %>/admin/analyse/<%= sub.id %>" style="margin-top:10px">
+      <button class="btn ghost small" type="submit">Re-run analysis</button>
+    </form>
   <% } %>
-  <div class="row">
-    <% if (ai) { %><%- include('partials/badge', { cat: ai.suggested_category }) %><% } %>
-    <span class="conf">confidence <%= ai && ai.confidence != null ? (ai.confidence*100).toFixed(0)+'%' : 'n/a' %></span>
-    <span class="conf"><%= ai ? (ai.model_used || '') : '' %></span>
-  </div>
-  <% if (claims && claims.length) { %>
-    <label style="margin-top:14px">Extracted claims</label>
-    <ul class="claims"><% claims.forEach(function(c){ %><li><%= c %></li><% }) %></ul>
-  <% } %>
-  <label style="margin-top:14px">Reasoning</label>
-  <p style="margin:4px 0 0"><%= ai ? ai.reasoning : '' %></p>
 </div>
 
 <h2>Editor decision</h2>
 <form method="post" action="<%= base %>/admin/review/<%= sub.id %>">
   <div class="split">
     <div>
-      <label>Final category</label>
+      <label>Final verdict category</label>
       <select name="final_category">
-        <% CATEGORIES.forEach(function(c){
-             var sel = (review ? review.final_category : (ai ? ai.suggested_category : 'unverified')) === c ? 'selected' : ''; %>
-          <option value="<%= c %>" <%= sel %>><%= CATEGORY_META[c].label %></option>
+        <% var curCat = review ? review.final_category : (ai ? ai.suggested_category : (CATEGORIES[0]||'')); %>
+        <% CATEGORIES.forEach(function(c){ %>
+          <option value="<%= c %>" <%= curCat===c?'selected':'' %>><%= CATEGORY_META[c].label %></option>
         <% }) %>
       </select>
     </div>
     <div>
-      <label>&nbsp;</label>
-      <div class="hint">The AI suggestion is a starting point &mdash; the published verdict is yours.</div>
+      <label>Source type</label>
+      <select name="source_type">
+        <% sourceTypes.forEach(function(t){ %>
+          <option value="<%= t.key %>" <%= (sub.source_type||'website')===t.key?'selected':'' %>><%= t.label %></option>
+        <% }) %>
+      </select>
     </div>
   </div>
+  <div class="hint" style="margin-top:4px">The AI suggestion is a starting point &mdash; the published verdict is yours.</div>
 
   <label>Public summary <span class="hint">(shown to readers &mdash; 1&ndash;2 neutral sentences, no full reprint)</span></label>
   <textarea name="public_summary"><%= review ? review.public_summary : (ai ? ai.public_summary : '') %></textarea>

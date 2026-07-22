@@ -1,0 +1,29 @@
+<%- include('partials/head') %>
+<h1>Source types</h1>
+<p class="sub">What kind of thing was submitted &mdash; website, Facebook page, video, image, and so on. Auto-detected from the link where possible, editable per item.</p>
+<% if (saved) { %><div class="ok">Saved.</div><% } %>
+
+<% types.forEach(function(t){ %>
+  <div class="card">
+    <form method="post" action="<%= base %>/admin/source-types" class="inline" style="align-items:flex-end">
+      <input type="hidden" name="action" value="update"><input type="hidden" name="id" value="<%= t.id %>">
+      <div><label>Label</label><input type="text" name="label" value="<%= t.label %>" style="width:220px"></div>
+      <div><label>Order</label><input type="text" name="sort_order" value="<%= t.sort_order %>" style="width:60px"></div>
+      <div><label>Active</label><input type="checkbox" name="active" <%= t.active?'checked':'' %>></div>
+      <span class="mono meta"><%= t.key %></span>
+      <button class="btn small" type="submit">Save</button>
+    </form>
+    <form method="post" action="<%= base %>/admin/source-types" onsubmit="return confirm('Remove this type?')" style="margin-top:6px">
+      <input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="<%= t.id %>">
+      <button class="btn ghost small" type="submit">Delete</button>
+    </form>
+  </div>
+<% }) %>
+
+<h2>Add a type</h2>
+<form method="post" action="<%= base %>/admin/source-types" class="inline" style="align-items:flex-end">
+  <input type="hidden" name="action" value="add">
+  <div><label>Label</label><input type="text" name="label" placeholder="e.g. WhatsApp forward" style="width:240px"></div>
+  <button class="btn" type="submit">Add</button>
+</form>
+<%- include('partials/foot') %>

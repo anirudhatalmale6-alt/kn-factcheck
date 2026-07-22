@@ -89,6 +89,15 @@ CREATE TABLE IF NOT EXISTS categories (
   active INTEGER NOT NULL DEFAULT 1
 );
 
+-- Source / content types (what KIND of thing was submitted).
+CREATE TABLE IF NOT EXISTS source_types (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  key TEXT NOT NULL UNIQUE,
+  label TEXT NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  active INTEGER NOT NULL DEFAULT 1
+);
+
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   username TEXT NOT NULL UNIQUE,
@@ -144,6 +153,8 @@ function addColumn(table, col, ddl) {
   if (!cols.includes(col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
 }
 addColumn('submissions', 'submitted_by', 'submitted_by INTEGER');
+addColumn('submissions', 'source_type', "source_type TEXT DEFAULT 'website'");
+addColumn('submissions', 'submitter_note', 'submitter_note TEXT');
 addColumn('reviews', 'reviewed_by', 'reviewed_by INTEGER');
 
 // ---------------------------------------------------------------------------
@@ -161,6 +172,25 @@ if (db.prepare('SELECT COUNT(*) c FROM categories').get().c === 0) {
     ['opinion', 'Opinion', '#1d4ed8', 'Commentary/analysis, not a checkable factual claim.', 7],
   ];
   const ins = db.prepare('INSERT INTO categories (key,label,color,description,sort_order) VALUES (?,?,?,?,?)');
+  for (const r of seed) ins.run(...r);
+}
+
+// Source types
+if (db.prepare('SELECT COUNT(*) c FROM source_types').get().c === 0) {
+  const seed = [
+    ['website', 'Website / news article', 1],
+    ['facebook', 'Facebook page/post', 2],
+    ['twitter', 'X / Twitter post', 3],
+    ['instagram', 'Instagram post', 4],
+    ['youtube', 'YouTube video', 5],
+    ['tiktok', 'TikTok video', 6],
+    ['image', 'Image / photo', 7],
+    ['video', 'Video clip', 8],
+    ['text_post', 'Text / message', 9],
+    ['document', 'Document / PDF', 10],
+    ['other', 'Other', 11],
+  ];
+  const ins = db.prepare('INSERT INTO source_types (key,label,sort_order) VALUES (?,?,?)');
   for (const r of seed) ins.run(...r);
 }
 
@@ -248,6 +278,15 @@ function categoryMap() {
   for (const c of listCategories(false)) m[c.key] = { label: c.label, color: c.color };
   return m;
 }
+function listSourceTypes(onlyActive) {
+  const sql = 'SELECT * FROM source_types' + (onlyActive ? ' WHERE active=1' : '') + ' ORDER BY sort_order, id';
+  return db.prepare(sql).all();
+}
+function sourceTypeMap() {
+  const m = {};
+  for (const s of listSourceTypes(false)) m[s.key] = s.label;
+  return m;
+}
 
 module.exports = db;
 module.exports.hashPassword = hashPassword;
@@ -256,3 +295,5 @@ module.exports.settingsGet = settingsGet;
 module.exports.settingsSet = settingsSet;
 module.exports.listCategories = listCategories;
 module.exports.categoryMap = categoryMap;
+module.exports.listSourceTypes = listSourceTypes;
+module.exports.sourceTypeMap = sourceTypeMap;

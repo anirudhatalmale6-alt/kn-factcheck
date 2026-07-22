@@ -5,8 +5,8 @@ const session = require('express-session');
 const QRCode = require('qrcode');
 
 const db = require('./db');
-const { hashPassword, verifyPassword, settingsGet, settingsSet, listCategories, categoryMap } = db;
-const { scrape, normalizeUrl } = require('./lib/scrape');
+const { hashPassword, verifyPassword, settingsGet, settingsSet, listCategories, categoryMap, listSourceTypes, sourceTypeMap } = db;
+const { scrape, normalizeUrl, detectSourceType } = require('./lib/scrape');
 const { analyse } = require('./lib/analyse');
 const { generateSecret, totpVerify, otpauthURL } = require('./lib/auth');
 
@@ -32,12 +32,13 @@ app.use(session({
 const ROLES = ['admin', 'editor', 'policy_writer', 'submitter'];
 const ROLE_LABEL = { admin: 'Admin', editor: 'Web editor', policy_writer: 'Policy writer', submitter: 'Submitter' };
 const PERMS = {
-  submit:     ['submitter', 'editor', 'admin'],
-  review:     ['editor', 'admin'],
-  policy:     ['policy_writer', 'admin'],
-  users:      ['admin'],
-  settings:   ['admin'],
-  categories: ['admin'],
+  submit:       ['submitter', 'editor', 'admin'],
+  review:       ['editor', 'admin'],
+  policy:       ['policy_writer', 'admin'],
+  users:        ['admin'],
+  settings:     ['admin'],
+  categories:   ['admin'],
+  source_types: ['admin'],
 };
 function can(user, action) {
   return !!(user && PERMS[action] && PERMS[action].includes(user.role));
@@ -52,6 +53,8 @@ app.use((req, res, next) => {
   res.locals.CATEGORY_META = categoryMap();
   res.locals.CATEGORIES = cats.map((c) => c.key);
   res.locals.categories = cats;
+  res.locals.sourceTypes = listSourceTypes(true);
+  res.locals.SOURCE_TYPE_MAP = sourceTypeMap();
   res.locals.ROLE_LABEL = ROLE_LABEL;
   res.locals.site_name = settingsGet('site_name', 'Kashmir Fact-Check');
   res.locals.theme = settingsGet('theme', 'light');
@@ -82,6 +85,50 @@ function uniqueSlug(base) {
   let slug = base, n = 1;
   while (db.prepare('SELECT 1 FROM reviews WHERE slug = ?').get(slug)) slug = base + '-' + (++n);
   return slug;
+}
+
+// Store a submitted URL (scrape + insert). Returns {id, existed}. Never runs AI.
+async function createSubmission(url, opts) {
+  opts = opts || {};
+  const normalized = normalizeUrl(url);
+  const existing = db.prepare('SELECT id FROM submissions WHERE normalized_url = ?').get(normalized);
+  if (existing) return { id: existing.id, existed: true };
+  const scraped = await scrape(url);
+  const info = db.prepare(`
+    INSERT INTO submissions (url, normalized_url, source_domain, raw_title, raw_text, raw_author, status, submitted_by, source_type, submitter_note)
+    VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
+  `).run(url, normalized, scraped.domain, scraped.title, scraped.text, scraped.author,
+    opts.submittedBy || null, detectSourceType(url), opts.note || null);
+  return { id: info.lastInsertRowid, existed: false, scraped };
+}
+
+// Run Claude analysis on a stored submission (idempotent-ish: adds a fresh analysis row).
+async function runAnalysis(submissionId) {
+  const sub = db.prepare('SELECT * FROM submissions WHERE id = ?').get(submissionId);
+  if (!sub) return;
+  const policy = db.prepare('SELECT * FROM policies WHERE is_active = 1').get();
+  let a;
+  try {
+    a = await analyse({
+      policyBody: policy ? policy.body : '',
+      title: sub.raw_title, text: sub.raw_text, url: sub.url,
+      apiKey: settingsGet('anthropic_api_key', ''),
+      model: settingsGet('model', 'claude-opus-4-8'),
+      categories: listCategories(true).map((c) => c.key),
+    });
+  } catch (e) {
+    const first = (listCategories(true)[0] || {}).key || 'unverified';
+    a = { extracted_claims: [], suggested_category: first, reasoning: 'AI analysis failed: ' + e.message,
+          confidence: 0, public_summary: '', model_used: 'error', input_tokens: null, output_tokens: null, raw_response: null };
+  }
+  db.prepare(`
+    INSERT INTO ai_analyses (submission_id, policy_id, extracted_claims, suggested_category, reasoning,
+                             confidence, public_summary, model_used, input_tokens, output_tokens, raw_response)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(submissionId, policy ? policy.id : null, JSON.stringify(a.extracted_claims || []),
+    a.suggested_category, a.reasoning, a.confidence, a.public_summary, a.model_used,
+    a.input_tokens, a.output_tokens, a.raw_response);
+  db.prepare(`UPDATE submissions SET status = 'analyzed' WHERE id = ? AND status = 'pending'`).run(submissionId);
 }
 
 // --------------------------------------------------------------------------
@@ -173,46 +220,53 @@ router.post('/admin/submit', requireRole('submit'), async (req, res) => {
     return res.status(400).render('admin-submit', { title: 'Submit a URL', error: 'Please enter a valid http(s) URL.', url });
   }
   const afterSubmit = (id) => can(req.session.user, 'review') ? (BASE + '/admin/review/' + id) : (BASE + '/admin?submitted=1');
-  const normalized = normalizeUrl(url);
-  const existing = db.prepare('SELECT id FROM submissions WHERE normalized_url = ?').get(normalized);
-  if (existing) return res.redirect(afterSubmit(existing.id));
-
-  let scraped;
-  try { scraped = await scrape(url); }
+  let created;
+  try { created = await createSubmission(url, { submittedBy: req.session.user.id }); }
   catch (e) { return res.status(502).render('admin-submit', { title: 'Submit a URL', error: 'Could not fetch that URL: ' + e.message, url }); }
+  if (created.existed) return res.redirect(afterSubmit(created.id));
+  await runAnalysis(created.id);
+  res.redirect(afterSubmit(created.id));
+});
 
-  const info = db.prepare(`
-    INSERT INTO submissions (url, normalized_url, source_domain, raw_title, raw_text, raw_author, status, submitted_by)
-    VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)
-  `).run(url, normalized, scraped.domain, scraped.title, scraped.text, scraped.author, req.session.user.id);
-  const submissionId = info.lastInsertRowid;
+// On-demand analysis for stored items (e.g. public tips) - editors/admin.
+router.post('/admin/analyse/:id', requireRole('review'), async (req, res) => {
+  await runAnalysis(req.params.id);
+  res.redirect(BASE + '/admin/review/' + req.params.id);
+});
 
-  const policy = db.prepare('SELECT * FROM policies WHERE is_active = 1').get();
-  let a;
-  try {
-    a = await analyse({
-      policyBody: policy ? policy.body : '',
-      title: scraped.title, text: scraped.text, url,
-      apiKey: settingsGet('anthropic_api_key', ''),
-      model: settingsGet('model', 'claude-opus-4-8'),
-      categories: listCategories(true).map((c) => c.key),
-    });
-  } catch (e) {
-    a = { extracted_claims: [], suggested_category: (res.locals.CATEGORIES[0] || 'unverified'),
-          reasoning: 'AI analysis failed: ' + e.message, confidence: 0, public_summary: '',
-          model_used: 'error', input_tokens: null, output_tokens: null, raw_response: null };
+// All submissions archive - every URL, whatever its status.
+router.get('/admin/submissions', requireAuth, (req, res) => {
+  const status = ['pending', 'analyzed', 'published', 'rejected'].includes(req.query.status) ? req.query.status : '';
+  const stype = req.query.type || '';
+  const mine = !can(req.session.user, 'review');   // submitters see only their own
+  const where = [];
+  const args = [];
+  if (status) { where.push('s.status = ?'); args.push(status); }
+  if (stype) { where.push('s.source_type = ?'); args.push(stype); }
+  if (mine) { where.push('s.submitted_by = ?'); args.push(req.session.user.id); }
+  const sql = `
+    SELECT s.*, a.suggested_category, a.confidence, r.final_category, r.slug
+    FROM submissions s
+    LEFT JOIN ai_analyses a ON a.id = (SELECT id FROM ai_analyses WHERE submission_id=s.id ORDER BY id DESC LIMIT 1)
+    LEFT JOIN reviews r ON r.id = (SELECT id FROM reviews WHERE submission_id=s.id ORDER BY id DESC LIMIT 1)
+    ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
+    ORDER BY s.created_at DESC LIMIT 300`;
+  const rows = db.prepare(sql).all(...args);
+  res.render('admin-submissions', { title: 'All submissions', rows, status, stype });
+});
+
+// Public tip intake - no account needed. Stored for admin; no AI runs automatically.
+router.get('/submit-tip', (req, res) => res.render('submit-tip', { title: 'Submit a tip', error: null, done: false, url: '' }));
+router.post('/submit-tip', async (req, res) => {
+  const url = String(req.body.url || '').trim();
+  const note = String(req.body.note || '').trim().slice(0, 1000);
+  if (req.body.website) return res.render('submit-tip', { title: 'Submit a tip', error: null, done: true, url: '' }); // honeypot
+  if (!/^https?:\/\//i.test(url)) {
+    return res.status(400).render('submit-tip', { title: 'Submit a tip', error: 'Please enter a valid http(s) link.', done: false, url });
   }
-
-  db.prepare(`
-    INSERT INTO ai_analyses (submission_id, policy_id, extracted_claims, suggested_category, reasoning,
-                             confidence, public_summary, model_used, input_tokens, output_tokens, raw_response)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(submissionId, policy ? policy.id : null, JSON.stringify(a.extracted_claims || []),
-    a.suggested_category, a.reasoning, a.confidence, a.public_summary, a.model_used,
-    a.input_tokens, a.output_tokens, a.raw_response);
-
-  db.prepare(`UPDATE submissions SET status = 'analyzed' WHERE id = ?`).run(submissionId);
-  res.redirect(afterSubmit(submissionId));
+  try { await createSubmission(url, { note }); }
+  catch (e) { return res.status(502).render('submit-tip', { title: 'Submit a tip', error: 'Could not fetch that link, but your tip was noted. ' + e.message, done: true, url: '' }); }
+  res.render('submit-tip', { title: 'Submit a tip', error: null, done: true, url: '' });
 });
 
 // --------------------------------------------------------------------------
@@ -230,6 +284,9 @@ router.get('/admin/review/:id', requireRole('review'), (req, res) => {
 router.post('/admin/review/:id', requireRole('review'), (req, res) => {
   const sub = db.prepare('SELECT * FROM submissions WHERE id = ?').get(req.params.id);
   if (!sub) return res.status(404).render('notfound', { title: 'Not found' });
+  if (Object.keys(res.locals.SOURCE_TYPE_MAP).includes(req.body.source_type)) {
+    db.prepare('UPDATE submissions SET source_type=? WHERE id=?').run(req.body.source_type, sub.id);
+  }
   if (req.body.action === 'reject') {
     db.prepare(`UPDATE submissions SET status = 'rejected' WHERE id = ?`).run(sub.id);
     return res.redirect(BASE + '/admin');
@@ -242,7 +299,7 @@ router.post('/admin/review/:id', requireRole('review'), (req, res) => {
   const overrode = ai && ai.suggested_category !== category ? 1 : 0;
 
   if (!publicSummary) {
-    let claims = []; try { claims = JSON.parse(ai.extracted_claims || '[]'); } catch (e) {}
+    let claims = []; try { claims = JSON.parse((ai && ai.extracted_claims) || '[]'); } catch (e) {}
     return res.status(400).render('admin-review', {
       title: 'Review #' + sub.id, sub, ai,
       review: db.prepare('SELECT * FROM reviews WHERE submission_id = ? ORDER BY id DESC LIMIT 1').get(sub.id),
@@ -312,6 +369,33 @@ router.post('/admin/categories', requireRole('categories'), (req, res) => {
     else if (cat) db.prepare('UPDATE categories SET active=0 WHERE id=?').run(cat.id); // in use -> deactivate
   }
   res.redirect(BASE + '/admin/categories?saved=1');
+});
+
+// --------------------------------------------------------------------------
+// Source types (Website / Facebook / Video / ...)
+// --------------------------------------------------------------------------
+router.get('/admin/source-types', requireRole('source_types'), (req, res) => {
+  res.render('admin-source-types', { title: 'Source types', types: listSourceTypes(false), saved: req.query.saved === '1' });
+});
+router.post('/admin/source-types', requireRole('source_types'), (req, res) => {
+  const a = req.body.action;
+  if (a === 'add') {
+    const key = slugify(req.body.label).replace(/-/g, '_');
+    const label = String(req.body.label || '').trim() || key;
+    if (key && !db.prepare('SELECT 1 FROM source_types WHERE key=?').get(key)) {
+      const max = db.prepare('SELECT COALESCE(MAX(sort_order),0) m FROM source_types').get().m;
+      db.prepare('INSERT INTO source_types (key,label,sort_order) VALUES (?,?,?)').run(key, label, max + 1);
+    }
+  } else if (a === 'update') {
+    db.prepare('UPDATE source_types SET label=?, sort_order=?, active=? WHERE id=?')
+      .run(String(req.body.label || '').trim(), parseInt(req.body.sort_order, 10) || 0, req.body.active ? 1 : 0, req.body.id);
+  } else if (a === 'delete') {
+    const t = db.prepare('SELECT * FROM source_types WHERE id=?').get(req.body.id);
+    const used = t && db.prepare('SELECT 1 FROM submissions WHERE source_type=? LIMIT 1').get(t.key);
+    if (t && !used) db.prepare('DELETE FROM source_types WHERE id=?').run(t.id);
+    else if (t) db.prepare('UPDATE source_types SET active=0 WHERE id=?').run(t.id);
+  }
+  res.redirect(BASE + '/admin/source-types?saved=1');
 });
 
 // --------------------------------------------------------------------------

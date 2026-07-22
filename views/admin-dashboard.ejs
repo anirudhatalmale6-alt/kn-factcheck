@@ -32,8 +32,10 @@
     <div class="card">
       <div class="row" style="justify-content:space-between">
         <div class="inline">
-          <% if (s.suggested_category) { %><%- include('partials/badge', { cat: s.suggested_category }) %><% } %>
-          <span class="conf">AI conf <%= s.confidence != null ? (s.confidence*100).toFixed(0)+'%' : 'n/a' %></span>
+          <span class="tag"><%= SOURCE_TYPE_MAP[s.source_type] || s.source_type || 'website' %></span>
+          <% if (s.suggested_category) { %><%- include('partials/badge', { cat: s.suggested_category }) %>
+          <% } else { %><span class="tag">not analysed</span><% } %>
+          <% if (s.confidence != null) { %><span class="conf">AI conf <%= (s.confidence*100).toFixed(0) %>%</span><% } %>
         </div>
         <span class="meta"><%= (s.created_at||'').slice(0,16) %></span>
       </div>
