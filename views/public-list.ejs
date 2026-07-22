@@ -1,14 +1,33 @@
 <%- include('partials/head') %>
 <h1>Fact-checks</h1>
-<p class="sub">Editorial assessments of claims circulating about Kashmir &mdash; checked against a published editorial policy.</p>
+<p class="sub">Editorial assessments of claims circulating about Kashmir &mdash; checked against a <a href="<%= base %>/standards">published editorial policy</a>.</p>
+
+<form method="get" action="<%= base %>/" class="inline" style="margin-bottom:18px">
+  <div><label>Verdict</label>
+    <select name="cat" onchange="this.form.submit()">
+      <option value="">All verdicts</option>
+      <% categories.forEach(function(c){ %><option value="<%= c.key %>" <%= cat===c.key?'selected':'' %>><%= c.label %></option><% }) %>
+    </select>
+  </div>
+  <div><label>Source type</label>
+    <select name="type" onchange="this.form.submit()">
+      <option value="">All types</option>
+      <% sourceTypes.forEach(function(t){ %><option value="<%= t.key %>" <%= type===t.key?'selected':'' %>><%= t.label %></option><% }) %>
+    </select>
+  </div>
+  <% if (cat || type) { %><a class="btn ghost small" href="<%= base %>/">Clear</a><% } %>
+</form>
 
 <% if (!items.length) { %>
-  <div class="empty">No published fact-checks yet.<% if (user && can('submit')) { %> <a href="<%= base %>/admin/submit">Submit the first one &rarr;</a><% } %></div>
+  <div class="empty">No published fact-checks<% if (cat||type) { %> match this filter<% } %>.<% if (user && can('submit')) { %> <a href="<%= base %>/admin/submit">Submit one &rarr;</a><% } %></div>
 <% } else { %>
   <% items.forEach(function(it){ %>
     <div class="card">
       <div class="row" style="justify-content:space-between">
-        <%- include('partials/badge', { cat: it.final_category }) %>
+        <div class="inline">
+          <%- include('partials/badge', { cat: it.final_category }) %>
+          <span class="tag"><%= SOURCE_TYPE_MAP[it.source_type] || it.source_type || 'website' %></span>
+        </div>
         <span class="meta"><%= (it.published_at||'').slice(0,10) %></span>
       </div>
       <h3 style="margin-top:8px"><a href="<%= base %>/fact-check/<%= it.slug %>"><%= it.public_summary %></a></h3>

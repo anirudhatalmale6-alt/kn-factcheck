@@ -1,0 +1,15 @@
+<%- include('partials/head') %>
+<h1>Editorial standards</h1>
+<p class="sub">Every fact-check on this site is assessed against the policy below. Our lens is on sourcing and evidence, not on imposing a political verdict.</p>
+<% if (policy) { %>
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <strong><%= policy.title %></strong>
+      <span class="meta">Effective <%= (policy.created_at||'').slice(0,10) %></span>
+    </div>
+    <div class="excerpt" style="max-height:none;margin-top:10px"><%= policy.body %></div>
+  </div>
+<% } else { %>
+  <div class="empty">No policy published yet.</div>
+<% } %>
+<%- include('partials/foot') %>

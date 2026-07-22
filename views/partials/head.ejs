@@ -4,6 +4,19 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title><%= title %> · <%= site_name %></title>
+<% var _seo = (typeof seo !== 'undefined' && seo) ? seo : null; %>
+<% if (_seo) { %>
+<meta name="description" content="<%= _seo.description %>">
+<meta property="og:title" content="<%= _seo.title || title %>">
+<meta property="og:description" content="<%= _seo.description %>">
+<meta property="og:type" content="<%= _seo.type || 'website' %>">
+<meta property="og:site_name" content="<%= site_name %>">
+<% if (_seo.url) { %><meta property="og:url" content="<%= _seo.url %>"><link rel="canonical" href="<%= _seo.url %>"><% } %>
+<meta name="twitter:card" content="summary">
+<meta name="twitter:title" content="<%= _seo.title || title %>">
+<meta name="twitter:description" content="<%= _seo.description %>">
+<% } %>
+<% if (typeof ldjson !== 'undefined' && ldjson) { %><script type="application/ld+json"><%- ldjson %></script><% } %>
 <link rel="stylesheet" href="<%= base %>/static/style.css">
 <style>:root{--accent:<%= accent %>;--accent-d:<%= accent %>}</style>
 </head>
@@ -13,6 +26,7 @@
     <a class="brand" href="<%= base %>/"><%= site_name %></a>
     <nav>
       <a href="<%= base %>/">Fact-checks</a>
+      <a href="<%= base %>/standards">Standards</a>
       <% if (user) { %>
         <a href="<%= base %>/admin">Dashboard</a>
         <a href="<%= base %>/admin/submissions">All URLs</a>

@@ -86,6 +86,13 @@ function uniqueSlug(base) {
   while (db.prepare('SELECT 1 FROM reviews WHERE slug = ?').get(slug)) slug = base + '-' + (++n);
   return slug;
 }
+function absUrl(req, p) {
+  const configured = settingsGet('public_base', '');
+  const root = configured ? configured.replace(/\/+$/, '') : ('https://' + (req.get('host') || '') + BASE);
+  return root + (p || '');
+}
+// schema.org ClaimReview numeric rating per verdict (1 worst .. 5 best)
+const CLAIM_RATING = { verified: 5, false: 1, misleading: 2, missing_context: 2, unverified: 3, satire: 3, opinion: 3 };
 
 // Store a submitted URL (scrape + insert). Returns {id, existed}. Never runs AI.
 async function createSubmission(url, opts) {
@@ -135,16 +142,24 @@ async function runAnalysis(submissionId) {
 // Public
 // --------------------------------------------------------------------------
 router.get('/', (req, res) => {
+  const cat = res.locals.CATEGORIES.includes(req.query.cat) ? req.query.cat : '';
+  const type = Object.keys(res.locals.SOURCE_TYPE_MAP).includes(req.query.type) ? req.query.type : '';
+  const where = ["s.status = 'published'"]; const args = [];
+  if (cat) { where.push('r.final_category = ?'); args.push(cat); }
+  if (type) { where.push('s.source_type = ?'); args.push(type); }
   const items = db.prepare(`
-    SELECT r.*, s.url, s.source_domain, s.raw_title
+    SELECT r.*, s.url, s.source_domain, s.raw_title, s.source_type
     FROM reviews r JOIN submissions s ON s.id = r.submission_id
-    WHERE s.status = 'published' ORDER BY r.published_at DESC
-  `).all();
-  res.render('public-list', { title: res.locals.site_name, items });
+    WHERE ${where.join(' AND ')} ORDER BY r.published_at DESC
+  `).all(...args);
+  res.render('public-list', {
+    title: res.locals.site_name, items, cat, type,
+    seo: { title: res.locals.site_name, description: 'Fact-checks of claims circulating about Kashmir, assessed for sourcing and evidence.', url: absUrl(req, '/'), type: 'website' },
+  });
 });
 router.get('/fact-check/:slug', (req, res) => {
   const item = db.prepare(`
-    SELECT r.*, s.url, s.source_domain, s.raw_title, s.raw_author
+    SELECT r.*, s.url, s.source_domain, s.raw_title, s.raw_author, s.source_type
     FROM reviews r JOIN submissions s ON s.id = r.submission_id
     WHERE r.slug = ? AND s.status = 'published'
   `).get(req.params.slug);
@@ -152,7 +167,30 @@ router.get('/fact-check/:slug', (req, res) => {
   const ai = db.prepare(`SELECT * FROM ai_analyses WHERE submission_id = ? ORDER BY id DESC LIMIT 1`).get(item.submission_id);
   let claims = [];
   try { claims = ai && ai.extracted_claims ? JSON.parse(ai.extracted_claims) : []; } catch (e) {}
-  res.render('public-item', { title: item.public_summary.slice(0, 60), item, claims });
+
+  const url = absUrl(req, '/fact-check/' + item.slug);
+  const label = (res.locals.CATEGORY_META[item.final_category] || {}).label || item.final_category;
+  const claimText = String((claims && claims[0]) || item.raw_title || item.public_summary || '').slice(0, 300);
+  const ld = {
+    '@context': 'https://schema.org', '@type': 'ClaimReview', url,
+    datePublished: (item.published_at || '').slice(0, 10),
+    author: { '@type': 'Organization', name: res.locals.site_name },
+    claimReviewed: claimText,
+    reviewRating: { '@type': 'Rating', ratingValue: CLAIM_RATING[item.final_category] || 3, bestRating: 5, worstRating: 1, alternateName: label },
+    itemReviewed: { '@type': 'Claim', appearance: { '@type': 'CreativeWork', url: item.url }, author: { '@type': 'Organization', name: item.source_domain || '' } },
+  };
+  res.render('public-item', {
+    title: item.public_summary.slice(0, 60), item, claims,
+    seo: { title: label + ': ' + item.public_summary.slice(0, 80), description: item.public_summary, url, type: 'article' },
+    ldjson: JSON.stringify(ld),
+  });
+});
+router.get('/standards', (req, res) => {
+  const policy = db.prepare('SELECT * FROM policies WHERE is_active = 1').get();
+  res.render('standards', {
+    title: 'Editorial standards', policy,
+    seo: { title: 'Editorial standards', description: 'The editorial policy our fact-checks are assessed against.', url: absUrl(req, '/standards'), type: 'website' },
+  });
 });
 
 // --------------------------------------------------------------------------
