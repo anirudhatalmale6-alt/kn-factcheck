@@ -1,10 +1,19 @@
 <%- include('partials/head') %>
 <h1>Settings</h1>
 <% if (saved) { %><div class="ok">Settings saved.</div><% } %>
-<form method="post" action="<%= base %>/admin/settings" style="max-width:640px">
+<form method="post" action="<%= base %>/admin/settings" enctype="multipart/form-data" style="max-width:640px">
 
   <label>Site name</label>
   <input type="text" name="site_name" value="<%= site_name %>">
+
+  <label>Logo <span class="hint">(shown in the header instead of the site name; PNG/SVG, transparent background works best)</span></label>
+  <% if (logo) { %>
+    <div class="card" style="display:inline-block;padding:10px 14px;margin:6px 0">
+      <img src="<%= base %><%= logo %>" alt="logo" style="max-height:44px;max-width:220px;vertical-align:middle">
+      <label style="display:inline-block;margin:0 0 0 14px;font-weight:600"><input type="checkbox" name="remove_logo" value="1"> Remove</label>
+    </div>
+  <% } %>
+  <input type="file" name="logo" accept="image/*">
 
   <label>Anthropic API key <span class="hint">(<%= keySet ? 'a key is currently set' : 'not set yet' %>)</span></label>
   <input type="password" name="anthropic_api_key" placeholder="<%= keySet ? 'leave blank to keep current key' : 'sk-ant-...' %>" autocomplete="off">

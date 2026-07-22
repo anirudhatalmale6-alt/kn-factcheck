@@ -45,6 +45,13 @@ function uploadSingle(req, res, next) {
     next();
   });
 }
+function uploadLogo(req, res, next) {
+  upload.single('logo')(req, res, (err) => {
+    if (err) return res.status(400).render('notfound', { title: 'Upload failed' });
+    if (req.file && !String(req.file.mimetype || '').startsWith('image/')) { req.file = null; } // ignore non-images
+    next();
+  });
+}
 function sourceTypeFromMime(m) {
   m = String(m || '');
   if (m.startsWith('image/')) return 'image';
@@ -94,6 +101,7 @@ app.use((req, res, next) => {
   res.locals.site_name = settingsGet('site_name', 'Kashmir Fact-Check');
   res.locals.theme = settingsGet('theme', 'light');
   res.locals.accent = settingsGet('accent', '#2b6a5b');
+  res.locals.logo = settingsGet('logo_path', '');
   res.locals.aiEnabled = !!(settingsGet('anthropic_api_key', '') || process.env.ANTHROPIC_API_KEY);
   res.locals.path = req.path;
   next();
@@ -536,10 +544,11 @@ router.get('/admin/settings', requireRole('settings'), (req, res) => {
     theme: settingsGet('theme', 'light'),
     accent: settingsGet('accent', '#2b6a5b'),
     site_name: settingsGet('site_name', 'Kashmir Fact-Check'),
+    logo: settingsGet('logo_path', ''),
     saved: req.query.saved === '1',
   });
 });
-router.post('/admin/settings', requireRole('settings'), (req, res) => {
+router.post('/admin/settings', requireRole('settings'), uploadLogo, (req, res) => {
   settingsSet('site_name', String(req.body.site_name || '').trim() || 'Kashmir Fact-Check');
   settingsSet('model', ['claude-opus-4-8', 'claude-sonnet-5', 'claude-haiku-4-5'].includes(req.body.model) ? req.body.model : 'claude-opus-4-8');
   settingsSet('theme', req.body.theme === 'dark' ? 'dark' : 'light');
@@ -547,6 +556,8 @@ router.post('/admin/settings', requireRole('settings'), (req, res) => {
   const key = String(req.body.anthropic_api_key || '').trim();
   if (key === '__CLEAR__') settingsSet('anthropic_api_key', '');
   else if (key) settingsSet('anthropic_api_key', key);   // only overwrite when a new value is given
+  if (req.body.remove_logo) settingsSet('logo_path', '');
+  else if (req.file) settingsSet('logo_path', '/uploads/' + req.file.filename);
   res.redirect(BASE + '/admin/settings?saved=1');
 });
 

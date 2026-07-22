@@ -19,11 +19,22 @@
 <% if (typeof ldjson !== 'undefined' && ldjson) { %><script type="application/ld+json"><%- ldjson %></script><% } %>
 <link rel="stylesheet" href="<%= base %>/static/style.css">
 <style>:root{--accent:<%= accent %>;--accent-d:<%= accent %>}</style>
+<script>
+/* Apply the visitor's saved theme (or system) before paint - no flash. */
+(function(){try{
+  var saved=localStorage.getItem('kn-theme');           // 'light' | 'dark' | 'system' | null
+  var d=document.documentElement;
+  function sys(){return matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}
+  if(saved==='light'||saved==='dark') d.setAttribute('data-theme',saved);
+  else if(saved==='system') d.setAttribute('data-theme',sys());
+  /* else: keep the server-rendered admin default */
+}catch(e){}})();
+</script>
 </head>
 <body>
 <header class="site">
   <div class="wrap">
-    <a class="brand" href="<%= base %>/"><%= site_name %></a>
+    <a class="brand" href="<%= base %>/"><% if (logo) { %><img src="<%= base %><%= logo %>" alt="<%= site_name %>" style="max-height:40px;max-width:220px;vertical-align:middle"><% } else { %><%= site_name %><% } %></a>
     <nav>
       <a href="<%= base %>/">Fact-checks</a>
       <a href="<%= base %>/standards">Standards</a>
@@ -44,7 +55,29 @@
         <a href="<%= base %>/submit-tip">Submit a tip</a>
         <a href="<%= base %>/admin/login">Staff sign in</a>
       <% } %>
+      <button id="themeBtn" class="btn ghost small" type="button" title="Switch theme">Theme</button>
     </nav>
   </div>
 </header>
+<script>
+(function(){
+  var btn=document.getElementById('themeBtn'); if(!btn) return;
+  var d=document.documentElement, order=['light','dark','system'];
+  function sys(){return matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light';}
+  function apply(mode){
+    d.setAttribute('data-theme', mode==='system'?sys():mode);
+    btn.textContent = mode==='system' ? 'Theme: Auto' : (mode==='dark'?'Theme: Dark':'Theme: Light');
+  }
+  var mode = localStorage.getItem('kn-theme') || '<%= theme %>';   // fall back to admin default
+  apply(mode);
+  btn.addEventListener('click', function(){
+    var cur = localStorage.getItem('kn-theme') || '<%= theme %>';
+    var next = order[(order.indexOf(cur)+1) % order.length];
+    localStorage.setItem('kn-theme', next); apply(next);
+  });
+  matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(){
+    if((localStorage.getItem('kn-theme')||'')==='system') apply('system');
+  });
+})();
+</script>
 <main><div class="wrap">
