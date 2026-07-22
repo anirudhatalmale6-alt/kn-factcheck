@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Source+Sans+3:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Source+Sans+3:wght@400;500;600;700&family=Noto+Nastaliq+Urdu:wght@400;600&family=Noto+Sans+Devanagari:wght@400;600&family=Noto+Sans+Gurmukhi:wght@400;600&display=swap" rel="stylesheet">
+<% if (typeof alternates !== 'undefined' && alternates) { alternates.forEach(function(a){ %><link rel="alternate" hreflang="<%= a.code %>" href="<%= a.href %>"><% }); } %>
 <title><%= title %> · <%= site_name %></title>
 <% var _seo = (typeof seo !== 'undefined' && seo) ? seo : null; %>
 <% if (_seo) { %>
@@ -49,6 +50,7 @@
         <% if (can('policy')) { %><a href="<%= base %>/admin/policy">Policy</a><% } %>
         <% if (can('categories')) { %><a href="<%= base %>/admin/categories">Categories</a><% } %>
         <% if (can('source_types')) { %><a href="<%= base %>/admin/source-types">Types</a><% } %>
+        <% if (can('languages')) { %><a href="<%= base %>/admin/languages">Languages</a><% } %>
         <% if (can('users')) { %><a href="<%= base %>/admin/users">Users</a><% } %>
         <% if (can('settings')) { %><a href="<%= base %>/admin/settings">Settings</a><% } %>
         <a href="<%= base %>/admin/2fa">2FA</a>

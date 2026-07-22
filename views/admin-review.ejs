@@ -101,4 +101,15 @@
     <% } %>
   </div>
 </form>
+
+<% if (review && enabledLanguages && enabledLanguages.length > 1) { %>
+  <h2>Translations</h2>
+  <div class="card">
+    <p class="hint" style="margin-top:0">Reader-facing text is auto-translated into your enabled languages when you publish. Re-run it here if you edit the summary or add a language.</p>
+    <form method="post" action="<%= base %>/admin/translate/<%= review.id %>">
+      <button class="btn ghost small" type="submit">Translate / re-translate</button>
+      <a class="btn ghost small" href="<%= base %>/admin/languages">Manage languages</a>
+    </form>
+  </div>
+<% } %>
 <%- include('partials/foot') %>

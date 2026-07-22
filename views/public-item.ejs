@@ -1,33 +1,44 @@
 <%- include('partials/head') %>
 <p><a href="<%= base %>/">&larr; All fact-checks</a></p>
-<div class="row" style="justify-content:space-between">
+<div class="row" style="justify-content:space-between;align-items:center">
   <%- include('partials/badge', { cat: item.final_category }) %>
   <span class="meta">Published <%= (item.published_at||'').slice(0,10) %></span>
 </div>
 
-<h1 style="margin-top:12px"><%= item.public_summary %></h1>
-
-<% if (item.file_path) { %>
-  <div style="margin:16px 0">
-    <% if (item.source_type==='image') { %>
-      <img src="<%= base %><%= item.file_path %>" alt="checked image" style="max-width:100%;border-radius:12px;border:1px solid var(--line)">
-    <% } else if (item.source_type==='video') { %>
-      <video src="<%= base %><%= item.file_path %>" controls style="max-width:100%;border-radius:12px"></video>
-    <% } else if (item.source_type==='audio') { %>
-      <audio src="<%= base %><%= item.file_path %>" controls style="width:100%"></audio>
-    <% } %>
+<% if (availLangs && availLangs.length > 1) { %>
+  <div class="langbar">
+    <span class="langbar-label">Read in:</span>
+    <% availLangs.forEach(function(l){ %>
+      <a class="langpill <%= curLang===l.code?'active':'' %>" href="<%= base %>/fact-check/<%= item.slug %><%= l.is_default?'':'?lang='+l.code %>"><%= l.label %></a>
+    <% }) %>
   </div>
 <% } %>
 
-<% if (claims && claims.length) { %>
-  <h2>Claim assessed</h2>
-  <ul class="claims"><% claims.forEach(function(c){ %><li><%= c %></li><% }) %></ul>
-<% } %>
+<div lang="<%= curLang %>" dir="<%= dir %>" class="fc-body">
+  <h1 style="margin-top:12px"><%= display.public_summary %></h1>
 
-<% if (item.editor_notes) { %>
-  <h2>Editor's note</h2>
-  <p><%= item.editor_notes %></p>
-<% } %>
+  <% if (item.file_path) { %>
+    <div style="margin:16px 0" dir="ltr">
+      <% if (item.source_type==='image') { %>
+        <img src="<%= base %><%= item.file_path %>" alt="checked image" style="max-width:100%;border-radius:12px;border:1px solid var(--line)">
+      <% } else if (item.source_type==='video') { %>
+        <video src="<%= base %><%= item.file_path %>" controls style="max-width:100%;border-radius:12px"></video>
+      <% } else if (item.source_type==='audio') { %>
+        <audio src="<%= base %><%= item.file_path %>" controls style="width:100%"></audio>
+      <% } %>
+    </div>
+  <% } %>
+
+  <% if (display.claims && display.claims.length) { %>
+    <h2>Claim assessed</h2>
+    <ul class="claims"><% display.claims.forEach(function(c){ %><li><%= c %></li><% }) %></ul>
+  <% } %>
+
+  <% if (display.editor_notes) { %>
+    <h2>Editor's note</h2>
+    <p><%= display.editor_notes %></p>
+  <% } %>
+</div>
 
 <div class="card" style="margin-top:24px">
   <div class="kv">

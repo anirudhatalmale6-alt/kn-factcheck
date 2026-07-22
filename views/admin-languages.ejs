@@ -1,0 +1,42 @@
+<%- include('partials/head') %>
+<h1>Languages</h1>
+<p class="sub">When a fact-check is published, its reader-facing text is automatically translated (by the AI) into every enabled language. Readers switch language on the fact-check page.</p>
+<% if (saved) { %><div class="ok">Saved.</div><% } %>
+
+<% langs.forEach(function(l){ %>
+  <div class="card">
+    <div class="row" style="justify-content:space-between;align-items:center">
+      <strong><%= l.label %> <span class="mono meta">(<%= l.code %>)</span></strong>
+      <span class="meta"><%= l.is_default ? 'default' : (l.enabled ? 'enabled' : 'disabled') %> · <%= l.dir %></span>
+    </div>
+    <% if (!l.is_default) { %>
+      <form method="post" action="<%= base %>/admin/languages" class="inline" style="align-items:flex-end;margin-top:10px">
+        <input type="hidden" name="action" value="update"><input type="hidden" name="code" value="<%= l.code %>">
+        <div><label>Label</label><input type="text" name="label" value="<%= l.label %>" style="width:150px"></div>
+        <div><label>Direction</label>
+          <select name="dir"><option value="ltr" <%= l.dir==='ltr'?'selected':'' %>>Left-to-right</option><option value="rtl" <%= l.dir==='rtl'?'selected':'' %>>Right-to-left</option></select>
+        </div>
+        <div><label>Order</label><input type="text" name="sort_order" value="<%= l.sort_order %>" style="width:56px"></div>
+        <div><label>Enabled</label><input type="checkbox" name="enabled" <%= l.enabled?'checked':'' %>></div>
+        <button class="btn small" type="submit">Save</button>
+      </form>
+      <form method="post" action="<%= base %>/admin/languages" onsubmit="return confirm('Remove <%= l.label %> and its translations?')" style="margin-top:6px">
+        <input type="hidden" name="action" value="delete"><input type="hidden" name="code" value="<%= l.code %>">
+        <button class="btn ghost small" type="submit">Delete</button>
+      </form>
+    <% } else { %>
+      <div class="hint" style="margin-top:8px">The default language is what editors write in; it's always on.</div>
+    <% } %>
+  </div>
+<% }) %>
+
+<h2>Add a language</h2>
+<form method="post" action="<%= base %>/admin/languages" class="inline" style="align-items:flex-end">
+  <input type="hidden" name="action" value="add">
+  <div><label>Code</label><input type="text" name="code" placeholder="e.g. ar" style="width:80px"></div>
+  <div><label>Label</label><input type="text" name="label" placeholder="e.g. Arabic" style="width:160px"></div>
+  <div><label>Direction</label><select name="dir"><option value="ltr">Left-to-right</option><option value="rtl">Right-to-left</option></select></div>
+  <button class="btn" type="submit">Add</button>
+</form>
+<p class="hint" style="margin-top:8px">Note: adding a language translates only fact-checks published after that; use "Re-translate" on an older item to backfill it.</p>
+<%- include('partials/foot') %>

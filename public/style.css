@@ -82,5 +82,17 @@ footer.site{border-top:1px solid var(--line);color:var(--muted);font-size:.82rem
 .fc-summary{font-family:"Fraunces",Georgia,serif;font-size:1.16rem;line-height:1.35;margin-bottom:12px}
 .fc-meta{color:var(--muted);font-size:.82rem}
 @media(max-width:680px){.grid{grid-template-columns:1fr}.hero-title{font-size:2.1rem}}
+/* Language switcher + translated content */
+.langbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:16px 0 2px}
+.langbar-label{color:var(--muted);font-size:.85rem}
+.langpill{text-decoration:none;border:1px solid var(--line);border-radius:999px;padding:4px 13px;font-size:.85rem;color:var(--ink);font-weight:600}
+.langpill:hover{border-color:var(--accent)}
+.langpill.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.fc-body[dir="rtl"]{text-align:right}
+.fc-body[lang="ur"], .fc-body[lang="ks"]{font-family:"Noto Nastaliq Urdu",serif;line-height:2.2}
+.fc-body[lang="ur"] h1, .fc-body[lang="ks"] h1{font-family:"Noto Nastaliq Urdu",serif;line-height:1.9;font-size:2rem}
+.fc-body[lang="ur"] .claims, .fc-body[lang="ks"] .claims{line-height:2.2}
+.fc-body[lang="hi"]{font-family:"Noto Sans Devanagari",sans-serif}
+.fc-body[lang="pa"]{font-family:"Noto Sans Gurmukhi",sans-serif}
 .split{display:grid;grid-template-columns:1fr 1fr;gap:16px}
 @media(max-width:680px){.split{grid-template-columns:1fr}.kv{grid-template-columns:100px 1fr}}

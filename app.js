@@ -9,9 +9,10 @@ const helmet = require('helmet');
 const QRCode = require('qrcode');
 
 const db = require('./db');
-const { hashPassword, verifyPassword, settingsGet, settingsSet, listCategories, categoryMap, listSourceTypes, sourceTypeMap } = db;
+const { hashPassword, verifyPassword, settingsGet, settingsSet, listCategories, categoryMap, listSourceTypes, sourceTypeMap, listLanguages } = db;
 const { scrape, normalizeUrl, detectSourceType } = require('./lib/scrape');
 const { analyse } = require('./lib/analyse');
+const { translate } = require('./lib/translate');
 const { generateSecret, totpVerify, otpauthURL } = require('./lib/auth');
 
 const app = express();
@@ -111,6 +112,7 @@ const PERMS = {
   settings:     ['admin'],
   categories:   ['admin'],
   source_types: ['admin'],
+  languages:    ['admin'],
 };
 function can(user, action) {
   return !!(user && PERMS[action] && PERMS[action].includes(user.role));
@@ -127,6 +129,7 @@ app.use((req, res, next) => {
   res.locals.categories = cats;
   res.locals.sourceTypes = listSourceTypes(true);
   res.locals.SOURCE_TYPE_MAP = sourceTypeMap();
+  res.locals.enabledLanguages = listLanguages(true);
   res.locals.ROLE_LABEL = ROLE_LABEL;
   res.locals.site_name = settingsGet('site_name', 'Kashmir Fact-Check');
   res.locals.theme = settingsGet('theme', 'light');
@@ -166,6 +169,36 @@ function absUrl(req, p) {
 }
 // schema.org ClaimReview numeric rating per verdict (1 worst .. 5 best)
 const CLAIM_RATING = { verified: 5, false: 1, misleading: 2, missing_context: 2, unverified: 3, satire: 3, opinion: 3 };
+
+const defaultLang = () => (db.prepare('SELECT code FROM languages WHERE is_default=1').get() || { code: 'en' }).code;
+
+// Generate AI translations of a published fact-check into every enabled non-default language. Best-effort.
+async function translateReview(reviewId) {
+  const r = db.prepare('SELECT * FROM reviews WHERE id = ?').get(reviewId);
+  if (!r) return;
+  const def = defaultLang();
+  const targets = listLanguages(true).filter((l) => l.code !== def);
+  if (!targets.length) return;
+  const ai = db.prepare('SELECT extracted_claims FROM ai_analyses WHERE submission_id = ? ORDER BY id DESC LIMIT 1').get(r.submission_id);
+  let claims = []; try { claims = JSON.parse((ai && ai.extracted_claims) || '[]'); } catch (e) {}
+  let map;
+  try {
+    map = await translate({
+      apiKey: settingsGet('anthropic_api_key', ''),
+      model: settingsGet('model', 'claude-opus-4-8'),
+      targets: targets.map((t) => ({ code: t.code, label: t.label })),
+      text: { public_summary: r.public_summary, claims, editor_notes: r.editor_notes || '' },
+    });
+  } catch (e) { return; }
+  const del = db.prepare('DELETE FROM fc_translations WHERE review_id = ? AND lang = ?');
+  const ins = db.prepare('INSERT INTO fc_translations (review_id, lang, public_summary, claims_json, editor_notes) VALUES (?,?,?,?,?)');
+  db.transaction(() => {
+    for (const code of Object.keys(map)) {
+      del.run(reviewId, code);
+      ins.run(reviewId, code, map[code].public_summary, JSON.stringify(map[code].claims || []), map[code].editor_notes || '');
+    }
+  })();
+}
 
 // Generic insert. f carries the column values; dedups on normalized_url.
 function insertSubmission(f, opts) {
@@ -286,7 +319,25 @@ router.get('/fact-check/:slug', (req, res) => {
   let claims = [];
   try { claims = ai && ai.extracted_claims ? JSON.parse(ai.extracted_claims) : []; } catch (e) {}
 
+  // ----- Language selection -----
+  const langs = listLanguages(true);
+  const def = defaultLang();
+  const have = new Set(db.prepare('SELECT lang FROM fc_translations WHERE review_id = ?').all(item.id).map((x) => x.lang));
+  const availLangs = langs.filter((l) => l.code === def || have.has(l.code));
+  let curLang = (req.query.lang && langs.find((l) => l.code === req.query.lang && (l.code === def || have.has(l.code)))) ? req.query.lang : def;
+  let dir = 'ltr';
+  let display = { public_summary: item.public_summary, claims, editor_notes: item.editor_notes };
+  if (curLang !== def) {
+    const tr = db.prepare('SELECT * FROM fc_translations WHERE review_id = ? AND lang = ?').get(item.id, curLang);
+    if (tr) {
+      let tclaims = []; try { tclaims = JSON.parse(tr.claims_json || '[]'); } catch (e) {}
+      display = { public_summary: tr.public_summary, claims: tclaims, editor_notes: tr.editor_notes };
+      dir = (langs.find((l) => l.code === curLang) || {}).dir || 'ltr';
+    } else { curLang = def; }
+  }
+
   const url = absUrl(req, '/fact-check/' + item.slug);
+  const alternates = availLangs.map((l) => ({ code: l.code, href: url + (l.code === def ? '' : '?lang=' + l.code) }));
   const label = (res.locals.CATEGORY_META[item.final_category] || {}).label || item.final_category;
   const claimText = String((claims && claims[0]) || item.raw_title || item.public_summary || '').slice(0, 300);
   const ld = {
@@ -298,9 +349,9 @@ router.get('/fact-check/:slug', (req, res) => {
     itemReviewed: { '@type': 'Claim', appearance: { '@type': 'CreativeWork', url: item.url }, author: { '@type': 'Organization', name: item.source_domain || '' } },
   };
   res.render('public-item', {
-    title: item.public_summary.slice(0, 60), item, claims,
-    seo: { title: label + ': ' + item.public_summary.slice(0, 80), description: item.public_summary, url, type: 'article' },
-    ldjson: JSON.stringify(ld),
+    title: display.public_summary.slice(0, 60), item, display, dir, curLang, availLangs,
+    seo: { title: label + ': ' + display.public_summary.slice(0, 80), description: display.public_summary, url: alternates.find((a) => a.code === curLang).href, type: 'article' },
+    ldjson: JSON.stringify(ld), alternates,
   });
 });
 router.get('/standards', (req, res) => {
@@ -490,7 +541,7 @@ router.get('/admin/review/:id', requireRole('review'), (req, res) => {
   try { claims = ai && ai.extracted_claims ? JSON.parse(ai.extracted_claims) : []; } catch (e) {}
   res.render('admin-review', { title: 'Review #' + sub.id, sub, ai, review, claims });
 });
-router.post('/admin/review/:id', requireRole('review'), (req, res) => {
+router.post('/admin/review/:id', requireRole('review'), async (req, res) => {
   const sub = db.prepare('SELECT * FROM submissions WHERE id = ?').get(req.params.id);
   if (!sub) return res.status(404).render('notfound', { title: 'Not found' });
   if (Object.keys(res.locals.SOURCE_TYPE_MAP).includes(req.body.source_type)) {
@@ -516,17 +567,29 @@ router.post('/admin/review/:id', requireRole('review'), (req, res) => {
     });
   }
   const existing = db.prepare('SELECT * FROM reviews WHERE submission_id = ? ORDER BY id DESC LIMIT 1').get(sub.id);
+  let reviewId;
   if (existing) {
     db.prepare(`UPDATE reviews SET final_category=?, public_summary=?, editor_notes=?, overrode_ai=?, reviewed_by=?, published_at=datetime('now') WHERE id=?`)
       .run(category, publicSummary, editorNotes, overrode, req.session.user.id, existing.id);
+    reviewId = existing.id;
   } else {
     const slug = uniqueSlug(slugify(sub.raw_title || sub.source_domain || 'fact-check'));
-    db.prepare(`INSERT INTO reviews (submission_id, final_category, public_summary, slug, editor_notes, overrode_ai, reviewed_by, published_at)
+    const info = db.prepare(`INSERT INTO reviews (submission_id, final_category, public_summary, slug, editor_notes, overrode_ai, reviewed_by, published_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`)
       .run(sub.id, category, publicSummary, slug, editorNotes, overrode, req.session.user.id);
+    reviewId = info.lastInsertRowid;
   }
   db.prepare(`UPDATE submissions SET status = 'published' WHERE id = ?`).run(sub.id);
+  try { await translateReview(reviewId); } catch (e) { /* translations are best-effort */ }
   res.redirect(BASE + '/admin');
+});
+
+// Manual (re)translate for a published fact-check.
+router.post('/admin/translate/:reviewId', requireRole('review'), async (req, res) => {
+  const r = db.prepare('SELECT submission_id FROM reviews WHERE id = ?').get(req.params.reviewId);
+  if (!r) return res.status(404).render('notfound', { title: 'Not found' });
+  try { await translateReview(req.params.reviewId); } catch (e) {}
+  res.redirect(BASE + '/admin/review/' + r.submission_id);
 });
 
 // --------------------------------------------------------------------------
@@ -605,6 +668,39 @@ router.post('/admin/source-types', requireRole('source_types'), (req, res) => {
     else if (t) db.prepare('UPDATE source_types SET active=0 WHERE id=?').run(t.id);
   }
   res.redirect(BASE + '/admin/source-types?saved=1');
+});
+
+// --------------------------------------------------------------------------
+// Languages (public fact-checks are auto-translated into the enabled ones)
+// --------------------------------------------------------------------------
+router.get('/admin/languages', requireRole('languages'), (req, res) => {
+  res.render('admin-languages', { title: 'Languages', langs: listLanguages(false), saved: req.query.saved === '1' });
+});
+router.post('/admin/languages', requireRole('languages'), (req, res) => {
+  const a = req.body.action;
+  if (a === 'add') {
+    const code = String(req.body.code || '').trim().toLowerCase().replace(/[^a-z-]/g, '').slice(0, 8);
+    const label = String(req.body.label || '').trim() || code;
+    const dir = req.body.dir === 'rtl' ? 'rtl' : 'ltr';
+    if (code && !db.prepare('SELECT 1 FROM languages WHERE code=?').get(code)) {
+      const max = db.prepare('SELECT COALESCE(MAX(sort_order),0) m FROM languages').get().m;
+      db.prepare('INSERT INTO languages (code,label,dir,sort_order) VALUES (?,?,?,?)').run(code, label, dir, max + 1);
+    }
+  } else if (a === 'update') {
+    const l = db.prepare('SELECT * FROM languages WHERE code=?').get(req.body.code);
+    if (l && !l.is_default) {   // default language (English) always stays enabled
+      db.prepare('UPDATE languages SET label=?, dir=?, enabled=?, sort_order=? WHERE code=?')
+        .run(String(req.body.label || '').trim() || l.label, req.body.dir === 'rtl' ? 'rtl' : 'ltr',
+          req.body.enabled ? 1 : 0, parseInt(req.body.sort_order, 10) || 0, l.code);
+    }
+  } else if (a === 'delete') {
+    const l = db.prepare('SELECT * FROM languages WHERE code=?').get(req.body.code);
+    if (l && !l.is_default) {
+      db.prepare('DELETE FROM fc_translations WHERE lang=?').run(l.code);
+      db.prepare('DELETE FROM languages WHERE code=?').run(l.code);
+    }
+  }
+  res.redirect(BASE + '/admin/languages?saved=1');
 });
 
 // --------------------------------------------------------------------------

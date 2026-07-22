@@ -98,6 +98,28 @@ CREATE TABLE IF NOT EXISTS source_types (
   active INTEGER NOT NULL DEFAULT 1
 );
 
+-- Languages the public fact-checks can be read in.
+CREATE TABLE IF NOT EXISTS languages (
+  code TEXT PRIMARY KEY,
+  label TEXT NOT NULL,
+  dir TEXT NOT NULL DEFAULT 'ltr',
+  is_default INTEGER NOT NULL DEFAULT 0,
+  enabled INTEGER NOT NULL DEFAULT 1,
+  sort_order INTEGER NOT NULL DEFAULT 0
+);
+
+-- AI-generated translations of a published fact-check's reader-facing text.
+CREATE TABLE IF NOT EXISTS fc_translations (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  review_id INTEGER NOT NULL REFERENCES reviews(id) ON DELETE CASCADE,
+  lang TEXT NOT NULL,
+  public_summary TEXT,
+  claims_json TEXT,
+  editor_notes TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  UNIQUE(review_id, lang)
+);
+
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   username TEXT NOT NULL UNIQUE,
@@ -200,6 +222,19 @@ if (db.prepare('SELECT COUNT(*) c FROM source_types').get().c === 0) {
 // Ensure 'audio' exists on older DBs seeded before it was added.
 if (!db.prepare("SELECT 1 FROM source_types WHERE key='audio'").get()) {
   db.prepare("INSERT INTO source_types (key,label,sort_order) VALUES ('audio','Audio clip',9)").run();
+}
+
+// Languages
+if (db.prepare('SELECT COUNT(*) c FROM languages').get().c === 0) {
+  const seed = [
+    ['en', 'English', 'ltr', 1, 1, 1],
+    ['ur', 'Urdu', 'rtl', 0, 1, 2],
+    ['hi', 'Hindi', 'ltr', 0, 1, 3],
+    ['pa', 'Punjabi', 'ltr', 0, 1, 4],
+    ['ks', 'Kashmiri', 'rtl', 0, 1, 5],
+  ];
+  const ins = db.prepare('INSERT INTO languages (code,label,dir,is_default,enabled,sort_order) VALUES (?,?,?,?,?,?)');
+  for (const r of seed) ins.run(...r);
 }
 
 // Default settings
@@ -321,6 +356,10 @@ function sourceTypeMap() {
   for (const s of listSourceTypes(false)) m[s.key] = s.label;
   return m;
 }
+function listLanguages(enabledOnly) {
+  const sql = 'SELECT * FROM languages' + (enabledOnly ? ' WHERE enabled=1' : '') + ' ORDER BY sort_order, code';
+  return db.prepare(sql).all();
+}
 
 module.exports = db;
 module.exports.hashPassword = hashPassword;
@@ -331,3 +370,4 @@ module.exports.listCategories = listCategories;
 module.exports.categoryMap = categoryMap;
 module.exports.listSourceTypes = listSourceTypes;
 module.exports.sourceTypeMap = sourceTypeMap;
+module.exports.listLanguages = listLanguages;
