@@ -213,6 +213,19 @@ ensureSetting('model', process.env.KN_MODEL || 'claude-opus-4-8');
 ensureSetting('theme', 'light');
 ensureSetting('accent', '#2b6a5b');
 ensureSetting('site_name', 'Kashmir Fact-Check');
+ensureSetting('logo_path', '');
+ensureSetting('about_text', [
+  'Kashmir News Fact Check is an editorially independent initiative of the Kashmir Record & Research Centre, dedicated to scrutinising claims, narratives and media coverage related to the Kashmir conflict. Drawing on open-source verification, archival research and on-the-ground testimonies, the project seeks to provide rigorously checked information in a landscape marked by competing state narratives and chronic misinformation.',
+  '',
+  '## Kashmir as a conflict zone',
+  "For more than seven decades, Kashmir has been at the centre of a territorial dispute between India and Pakistan, marked by multiple wars, cycles of insurgency and some of the world's most intense militarisation. The region's complex history—from the 1947 accession of the former princely state to subsequent UN resolutions and the revocation of Jammu and Kashmir's special status in 2019—has shaped both lived realities on the ground and the global conversation around rights, security and self-determination.",
+  '',
+  '## Propaganda and competing narratives',
+  'This prolonged conflict has produced layered propaganda ecosystems, with pro-Indian and pro-Pakistani media, political actors and digital networks advancing sharply divergent narratives about events in Kashmir. In recent years, narrative warfare around militant attacks, counterinsurgency operations and legal changes has intensified across television, print, and social media, often amplifying disinformation and framing Kashmiris either as security threats or passive subjects rather than political agents in their own right.',
+  '',
+  '## A platform for pro-Kashmiri voices',
+  'Kashmir News Fact Check is explicitly committed to centring Kashmiri perspectives and documenting how anti-Kashmiri propaganda operates—whether it originates from state institutions, political parties, or transnational media ecosystems. By foregrounding local voices, contextual data and transparent verification methods, the project aims to help readers distinguish evidence-based reporting from partisan spin, and to better understand how information warfare shapes everyday life, democratic debate and human rights in Kashmir.',
+].join('\n'));
 
 // Starter editorial policy
 if (!db.prepare(`SELECT COUNT(*) c FROM policies WHERE is_active = 1`).get().c) {

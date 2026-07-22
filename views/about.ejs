@@ -1,0 +1,10 @@
+<%- include('partials/head') %>
+<h1>About <%= site_name %></h1>
+<div style="max-width:760px">
+  <% blocks.forEach(function(b){ %>
+    <% if (b.heading) { %><h2><%= b.heading %></h2><% } %>
+    <% if (b.text) { %><p style="font-size:1.05rem;margin:0 0 16px"><%= b.text %></p><% } %>
+  <% }) %>
+</div>
+<p class="sub" style="margin-top:26px"><a href="<%= base %>/standards">Read our editorial standards &rarr;</a></p>
+<%- include('partials/foot') %>

@@ -21,7 +21,9 @@ tr:last-child td{border-bottom:0}
 @media(max-width:680px){.stats{grid-template-columns:repeat(2,1fr)}}
 *{box-sizing:border-box}
 body{margin:0;background:var(--paper);color:var(--ink);
-  font:16px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  font-family:"Source Sans 3",-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+  font-size:16.5px;line-height:1.65;-webkit-font-smoothing:antialiased}
+h1,h2,h3,.brand{font-family:"Fraunces","Iowan Old Style",Georgia,"Times New Roman",serif;letter-spacing:-.01em}
 a{color:var(--accent-d)}
 .wrap{max-width:900px;margin:0 auto;padding:0 20px}
 header.site{background:var(--card);border-bottom:1px solid var(--line)}
@@ -59,8 +61,8 @@ ul.claims{margin:8px 0 0;padding-left:20px}
 ul.claims li{margin:4px 0}
 .kv{display:grid;grid-template-columns:130px 1fr;gap:6px 14px;font-size:.9rem;margin:10px 0}
 .kv .k{color:var(--muted)}
-.excerpt{background:var(--wash);border-radius:10px;padding:12px 14px;max-height:220px;overflow:auto;
-  font-size:.86rem;color:#3c3733;white-space:pre-wrap}
+.excerpt{background:var(--wash);border-radius:10px;padding:14px 16px;max-height:220px;overflow:auto;
+  font-size:.92rem;line-height:1.6;color:var(--ink);white-space:pre-wrap}
 .conf{font-variant-numeric:tabular-nums;color:var(--muted);font-size:.82rem}
 footer.site{border-top:1px solid var(--line);color:var(--muted);font-size:.82rem;padding:22px 0}
 .empty{color:var(--muted);padding:26px 0;text-align:center}

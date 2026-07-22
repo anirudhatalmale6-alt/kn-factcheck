@@ -242,6 +242,7 @@ router.get('/', (req, res) => {
     seo: { title: res.locals.site_name, description: 'Fact-checks of claims circulating about Kashmir, assessed for sourcing and evidence.', url: absUrl(req, '/'), type: 'website' },
   });
 });
+router.get('/fact-check', (req, res) => res.redirect(BASE + '/'));   // no slug -> the feed
 router.get('/fact-check/:slug', (req, res) => {
   const item = db.prepare(`
     SELECT r.*, s.url, s.source_domain, s.raw_title, s.raw_author, s.source_type, s.file_path, s.content_kind
@@ -275,6 +276,22 @@ router.get('/standards', (req, res) => {
   res.render('standards', {
     title: 'Editorial standards', policy,
     seo: { title: 'Editorial standards', description: 'The editorial policy our fact-checks are assessed against.', url: absUrl(req, '/standards'), type: 'website' },
+  });
+});
+router.get('/about', (req, res) => {
+  const raw = settingsGet('about_text', '');
+  // Split into blocks; "## X" lines become sub-headings.
+  const blocks = raw.split(/\n\s*\n/).map((b) => b.trim()).filter(Boolean).map((b) => {
+    if (b.startsWith('## ')) {
+      const nl = b.indexOf('\n');
+      if (nl === -1) return { heading: b.slice(3).trim() };
+      return { heading: b.slice(3, nl).trim(), text: b.slice(nl + 1).trim() };
+    }
+    return { text: b };
+  });
+  res.render('about', {
+    title: 'About', blocks,
+    seo: { title: 'About ' + res.locals.site_name, description: 'About ' + res.locals.site_name + ' - an independent Kashmir fact-checking initiative.', url: absUrl(req, '/about'), type: 'website' },
   });
 });
 
@@ -545,6 +562,7 @@ router.get('/admin/settings', requireRole('settings'), (req, res) => {
     accent: settingsGet('accent', '#2b6a5b'),
     site_name: settingsGet('site_name', 'Kashmir Fact-Check'),
     logo: settingsGet('logo_path', ''),
+    about_text: settingsGet('about_text', ''),
     saved: req.query.saved === '1',
   });
 });
@@ -558,6 +576,7 @@ router.post('/admin/settings', requireRole('settings'), uploadLogo, (req, res) =
   else if (key) settingsSet('anthropic_api_key', key);   // only overwrite when a new value is given
   if (req.body.remove_logo) settingsSet('logo_path', '');
   else if (req.file) settingsSet('logo_path', '/uploads/' + req.file.filename);
+  if (typeof req.body.about_text === 'string') settingsSet('about_text', req.body.about_text.trim());
   res.redirect(BASE + '/admin/settings?saved=1');
 });
 
