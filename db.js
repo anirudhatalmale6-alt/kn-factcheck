@@ -226,6 +226,18 @@ ensureSetting('about_text', [
   '',
   '## A platform for pro-Kashmiri voices',
   'Kashmir News Fact Check is explicitly committed to centring Kashmiri perspectives and documenting how anti-Kashmiri propaganda operates—whether it originates from state institutions, political parties, or transnational media ecosystems. By foregrounding local voices, contextual data and transparent verification methods, the project aims to help readers distinguish evidence-based reporting from partisan spin, and to better understand how information warfare shapes everyday life, democratic debate and human rights in Kashmir.',
+  '',
+  '## Editorial stance and scope',
+  'We are pro-Kashmiri in a precise sense: we centre Kashmiri rights, experiences and voices. That commitment does not lower our evidential bar. We apply the same universal fact-checking and verification standards to every claim we examine—whether it originates from pro-India, pro-Pakistan, Kashmiri or international sources. A claim is judged on its sourcing and its evidence, not on who makes it or which narrative it happens to serve.',
+  '',
+  '## Governance and funding',
+  'The project is an editorially independent initiative of the Kashmir Record & Research Centre. What we choose to check, and the verdict we reach, is decided by the editorial team alone. The Centre is committed to transparency about how the work is funded, and maintains a strict separation between funding and editorial judgement, so that no political party, institution or donor can influence a verdict.',
+  '',
+  '## Team and expertise',
+  'Our work is produced by a team that combines journalism, research and digital verification—reporting and editing, archival and open-source investigation, and the technical analysis of images, video and online content. Contested or high-stakes cases are reviewed against our published editorial standards, with independent expert guidance where a claim calls for it.',
+  '',
+  '## Audience participation',
+  'Readers are invited to send us claims, links, images, video or audio to be checked through our Submit a tip page—no account is required. We cannot investigate everything, so we prioritise by reach (how widely a claim is spreading), potential for harm, and relevance to Kashmiri communities. Every submission is reviewed by the editorial team, and each published check sets out the evidence and the reasoning behind its verdict.',
 ].join('\n'));
 
 // Starter editorial policy
