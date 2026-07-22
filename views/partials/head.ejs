@@ -37,9 +37,10 @@
 </head>
 <body>
 <header class="site">
-  <div class="wrap">
+  <div class="wrap navwrap">
     <a class="brand" href="<%= base %>/"><% if (logo) { %><img src="<%= base %><%= logo %>" alt="<%= site_name %>" style="max-height:40px;max-width:220px;vertical-align:middle"><% } else { %><%= site_name %><% } %></a>
-    <nav>
+    <button class="hamburger" id="navToggle" type="button" aria-label="Menu" aria-expanded="false">&#9776;</button>
+    <nav id="nav">
       <a href="<%= base %>/">Fact-checks</a>
       <a href="<%= base %>/about">About</a>
       <a href="<%= base %>/standards">Standards</a>
@@ -66,6 +67,10 @@
   </div>
 </header>
 <script>
+(function(){
+  var t=document.getElementById('navToggle'), n=document.getElementById('nav');
+  if(t&&n){ t.addEventListener('click',function(){ var o=n.classList.toggle('open'); t.setAttribute('aria-expanded',o?'true':'false'); }); }
+})();
 (function(){
   var btn=document.getElementById('themeBtn'); if(!btn) return;
   var d=document.documentElement, order=['light','dark','system'];
