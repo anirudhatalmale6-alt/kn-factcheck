@@ -15,7 +15,10 @@ const { generateSecret, totpVerify, otpauthURL } = require('./lib/auth');
 
 const app = express();
 const PORT = process.env.PORT || 3925;
-const BASE = process.env.BASE_PATH || '/kn';
+// BASE_PATH='/kn' (default, sub-path) or '/' (serve at domain root, e.g. a dedicated domain)
+const RAW_BASE = process.env.BASE_PATH != null ? process.env.BASE_PATH : '/kn';
+const BASE = (RAW_BASE === '/' || RAW_BASE === '') ? '' : RAW_BASE.replace(/\/+$/, '');
+app.set('trust proxy', true);
 
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
@@ -616,6 +619,6 @@ router.post('/admin/2fa', requireAuth, async (req, res) => {
   res.redirect(BASE + '/admin/2fa');
 });
 
-app.use(BASE, router);
-app.get('/', (req, res) => res.redirect(BASE + '/'));
-app.listen(PORT, () => console.log(`kn-factcheck listening on :${PORT} (base ${BASE})`));
+app.use(BASE || '/', router);
+if (BASE) app.get('/', (req, res) => res.redirect(BASE + '/'));
+app.listen(PORT, () => console.log(`kn-factcheck listening on :${PORT} (base "${BASE}")`));
