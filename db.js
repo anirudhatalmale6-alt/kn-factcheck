@@ -180,6 +180,7 @@ addColumn('submissions', 'submitter_note', 'submitter_note TEXT');
 addColumn('submissions', 'file_path', 'file_path TEXT');       // uploaded media (image/video/audio/doc)
 addColumn('submissions', 'file_mime', 'file_mime TEXT');
 addColumn('submissions', 'content_kind', "content_kind TEXT DEFAULT 'url'"); // url | text | file
+addColumn('submissions', 'submitter_name', 'submitter_name TEXT'); // public tip: who submitted
 addColumn('reviews', 'reviewed_by', 'reviewed_by INTEGER');
 
 // ---------------------------------------------------------------------------

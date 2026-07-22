@@ -12,6 +12,7 @@
     <% if (sub.url) { %><div class="k">URL</div><div><a href="<%= sub.url %>" target="_blank" rel="nofollow noopener"><%= sub.url %></a></div><% } %>
     <div class="k">Source</div><div><%= sub.source_domain %></div>
     <div class="k">Type</div><div><span class="tag"><%= SOURCE_TYPE_MAP[sub.source_type] || sub.source_type || 'website' %></span></div>
+    <div class="k">Submitted by</div><div><%= typeof submitterLabel !== 'undefined' && submitterLabel ? submitterLabel : (sub.submitter_name ? sub.submitter_name + ' (public tip)' : 'Anonymous') %></div>
     <% if (sub.raw_author) { %><div class="k">Author</div><div><%= sub.raw_author %></div><% } %>
     <% if (sub.archive_url) { %><div class="k">Archived</div><div><a href="<%= sub.archive_url %>" target="_blank" rel="noopener">Wayback copy &rarr;</a></div><% } %>
     <% if (sub.submitter_note) { %><div class="k">Tip note</div><div><%= sub.submitter_note %></div><% } %>

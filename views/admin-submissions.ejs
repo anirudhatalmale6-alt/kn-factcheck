@@ -39,7 +39,7 @@
         <% if (can('review')) { %><a href="<%= base %>/admin/review/<%= r.id %>"><%= r.raw_title || r.url %></a>
         <% } else { %><%= r.raw_title || r.url %><% } %>
       </h3>
-      <div class="meta"><%= r.source_domain %><% if (r.submitter_note) { %> &middot; tip: <%= r.submitter_note.slice(0,120) %><% } %></div>
+      <div class="meta"><%= r.source_domain %><% if (r.submitter_name) { %> &middot; by <%= r.submitter_name %><% } %><% if (r.submitter_note) { %> &middot; tip: <%= r.submitter_note.slice(0,120) %><% } %></div>
       <% if (r.status==='published' && r.slug) { %><div class="meta"><a href="<%= base %>/fact-check/<%= r.slug %>" target="_blank">View live &rarr;</a></div><% } %>
     </div>
   <% }) %>

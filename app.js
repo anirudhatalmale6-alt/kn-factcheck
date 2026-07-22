@@ -213,10 +213,10 @@ function insertSubmission(f, opts) {
   if (existing) return { id: existing.id, existed: true };
   const info = db.prepare(`
     INSERT INTO submissions (url, normalized_url, source_domain, raw_title, raw_text, raw_author, status,
-                             submitted_by, source_type, submitter_note, file_path, file_mime, content_kind, archive_url)
-    VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)
+                             submitted_by, source_type, submitter_note, file_path, file_mime, content_kind, archive_url, submitter_name)
+    VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(f.url || '', f.normalized_url, f.source_domain || '', f.raw_title || '', f.raw_text || '', f.raw_author || '',
-    opts.submittedBy || null, f.source_type || 'other', opts.note || null, f.file_path || null, f.file_mime || null, f.content_kind || 'url', f.archive_url || null);
+    opts.submittedBy || null, f.source_type || 'other', opts.note || null, f.file_path || null, f.file_mime || null, f.content_kind || 'url', f.archive_url || null, opts.submitterName || null);
   return { id: info.lastInsertRowid, existed: false };
 }
 
@@ -528,18 +528,32 @@ router.get('/admin/submissions', requireAuth, (req, res) => {
   res.render('admin-submissions', { title: 'All submissions', rows, status, stype });
 });
 
-// Public tip intake - no account needed. Stored for admin; no AI runs automatically.
-router.get('/submit-tip', (req, res) => res.render('submit-tip', { title: 'Submit a tip', error: null, done: false, url: '' }));
-router.post('/submit-tip', async (req, res) => {
+// Public tip intake - no account needed. Runs the AI so the submitter gets an
+// instant automated read; the item still goes to an editor to approve/publish.
+const tipHits = new Map();
+function tipLimiter(req, res, next) {
+  const ip = req.ip || 'x', now = Date.now(), WIN = 60 * 60 * 1000, MAX = 8;
+  let r = tipHits.get(ip);
+  if (!r || now - r.first > WIN) { r = { count: 0, first: now }; tipHits.set(ip, r); }
+  if (r.count >= MAX) return res.status(429).render('submit-tip', { title: 'Submit a tip', error: 'You have submitted several times recently - please try again a little later.', done: false, url: '', result: null });
+  r.count++;
+  next();
+}
+router.get('/submit-tip', (req, res) => res.render('submit-tip', { title: 'Submit a tip', error: null, done: false, url: '', result: null }));
+router.post('/submit-tip', tipLimiter, async (req, res) => {
   const url = String(req.body.url || '').trim();
   const note = String(req.body.note || '').trim().slice(0, 1000);
-  if (req.body.website) return res.render('submit-tip', { title: 'Submit a tip', error: null, done: true, url: '' }); // honeypot
+  const submitterName = String(req.body.submitter_name || '').trim().slice(0, 80);
+  if (req.body.website) return res.render('submit-tip', { title: 'Submit a tip', error: null, done: true, url: '', result: null }); // honeypot
   if (!/^https?:\/\//i.test(url)) {
-    return res.status(400).render('submit-tip', { title: 'Submit a tip', error: 'Please enter a valid http(s) link.', done: false, url });
+    return res.status(400).render('submit-tip', { title: 'Submit a tip', error: 'Please enter a valid http(s) link.', done: false, url, result: null });
   }
-  try { await createSubmission(url, { note }); }
-  catch (e) { return res.status(502).render('submit-tip', { title: 'Submit a tip', error: 'Could not fetch that link, but your tip was noted. ' + e.message, done: true, url: '' }); }
-  res.render('submit-tip', { title: 'Submit a tip', error: null, done: true, url: '' });
+  let created;
+  try { created = await createSubmission(url, { note, submitterName }); }
+  catch (e) { return res.status(502).render('submit-tip', { title: 'Submit a tip', error: 'Could not fetch that link, but your tip was noted for our team. ' + e.message, done: true, url: '', result: null }); }
+  try { if (!created.existed) await runAnalysis(created.id); } catch (e) { /* result stays null */ }
+  const ai = db.prepare('SELECT suggested_category, reasoning, public_summary, confidence, model_used FROM ai_analyses WHERE submission_id = ? ORDER BY id DESC LIMIT 1').get(created.id);
+  res.render('submit-tip', { title: 'Submit a tip', error: null, done: true, url: '', result: ai || null });
 });
 
 // --------------------------------------------------------------------------
@@ -552,7 +566,13 @@ router.get('/admin/review/:id', requireRole('review'), (req, res) => {
   const review = db.prepare('SELECT * FROM reviews WHERE submission_id = ? ORDER BY id DESC LIMIT 1').get(sub.id);
   let claims = [];
   try { claims = ai && ai.extracted_claims ? JSON.parse(ai.extracted_claims) : []; } catch (e) {}
-  res.render('admin-review', { title: 'Review #' + sub.id, sub, ai, review, claims });
+  let submitterLabel = sub.submitter_name ? (sub.submitter_name + ' (public tip)') : null;
+  if (!submitterLabel && sub.submitted_by) {
+    const u = db.prepare('SELECT username, name FROM users WHERE id = ?').get(sub.submitted_by);
+    if (u) submitterLabel = (u.name || u.username) + ' (staff)';
+  }
+  if (!submitterLabel) submitterLabel = 'Anonymous';
+  res.render('admin-review', { title: 'Review #' + sub.id, sub, ai, review, claims, submitterLabel });
 });
 router.post('/admin/review/:id', requireRole('review'), async (req, res) => {
   const sub = db.prepare('SELECT * FROM submissions WHERE id = ?').get(req.params.id);
