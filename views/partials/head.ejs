@@ -1,23 +1,28 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="<%= theme %>">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title><%= title %> · Kashmir Fact-Check</title>
+<title><%= title %> · <%= site_name %></title>
 <link rel="stylesheet" href="<%= base %>/static/style.css">
+<style>:root{--accent:<%= accent %>;--accent-d:<%= accent %>}</style>
 </head>
 <body>
 <header class="site">
   <div class="wrap">
-    <a class="brand" href="<%= base %>/">Kashmir <span>Fact-Check</span></a>
+    <a class="brand" href="<%= base %>/"><%= site_name %></a>
     <nav>
       <a href="<%= base %>/">Fact-checks</a>
-      <% if (isAdmin) { %>
-        <a href="<%= base %>/admin">Queue</a>
-        <a href="<%= base %>/admin/submit">Submit</a>
-        <a href="<%= base %>/admin/policy">Policy</a>
+      <% if (user) { %>
+        <a href="<%= base %>/admin">Dashboard</a>
+        <% if (can('submit')) { %><a href="<%= base %>/admin/submit">Submit</a><% } %>
+        <% if (can('policy')) { %><a href="<%= base %>/admin/policy">Policy</a><% } %>
+        <% if (can('categories')) { %><a href="<%= base %>/admin/categories">Categories</a><% } %>
+        <% if (can('users')) { %><a href="<%= base %>/admin/users">Users</a><% } %>
+        <% if (can('settings')) { %><a href="<%= base %>/admin/settings">Settings</a><% } %>
+        <a href="<%= base %>/admin/2fa">2FA</a>
         <form action="<%= base %>/admin/logout" method="post" style="display:inline">
-          <button class="btn ghost small" type="submit">Sign out</button>
+          <button class="btn ghost small" type="submit"><%= user.name || user.username %> · Sign out</button>
         </form>
       <% } else { %>
         <a href="<%= base %>/admin/login">Staff sign in</a>

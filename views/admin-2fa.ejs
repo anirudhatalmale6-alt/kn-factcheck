@@ -1,0 +1,28 @@
+<%- include('partials/head') %>
+<h1>Two-factor authentication</h1>
+<% if (error) { %><div class="err"><%= error %></div><% } %>
+
+<% if (enabled) { %>
+  <div class="ok">Two-factor is <strong>on</strong> for your account. You'll be asked for a code from your authenticator app each time you sign in.</div>
+  <form method="post" action="<%= base %>/admin/2fa" onsubmit="return confirm('Turn off two-factor?')">
+    <input type="hidden" name="action" value="disable">
+    <button class="btn danger" type="submit">Turn off two-factor</button>
+  </form>
+<% } else { %>
+  <p class="sub">Scan this with Google Authenticator, Authy, 1Password, or any TOTP app, then enter the 6-digit code to switch it on.</p>
+  <div class="split">
+    <div>
+      <div class="qr"><img src="<%= qr %>" alt="2FA QR" width="200" height="200"></div>
+      <p class="hint">Can't scan? Enter this key manually:<br><span class="mono"><%= secret %></span></p>
+    </div>
+    <div>
+      <form method="post" action="<%= base %>/admin/2fa">
+        <input type="hidden" name="action" value="enable">
+        <label>6-digit code</label>
+        <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" placeholder="000000" style="width:160px" autofocus>
+        <div style="margin-top:16px"><button class="btn" type="submit">Turn on two-factor</button></div>
+      </form>
+    </div>
+  </div>
+<% } %>
+<%- include('partials/foot') %>

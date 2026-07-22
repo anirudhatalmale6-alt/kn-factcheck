@@ -1,0 +1,35 @@
+<%- include('partials/head') %>
+<h1>Verdict categories</h1>
+<p class="sub">These are the labels editors and the AI can assign. Add your own, recolour, reorder, or hide.</p>
+<% if (saved) { %><div class="ok">Saved.</div><% } %>
+
+<% cats.forEach(function(c){ %>
+  <div class="card">
+    <div class="row" style="justify-content:space-between;align-items:center">
+      <%- include('partials/badge', { cat: c.key }) %>
+      <span class="mono meta"><%= c.key %></span>
+    </div>
+    <form method="post" action="<%= base %>/admin/categories" class="inline" style="align-items:flex-end;margin-top:10px">
+      <input type="hidden" name="action" value="update"><input type="hidden" name="id" value="<%= c.id %>">
+      <div><label>Label</label><input type="text" name="label" value="<%= c.label %>" style="width:170px"></div>
+      <div><label>Colour</label><input type="text" name="color" value="<%= c.color %>" class="mono" style="width:100px"></div>
+      <div><label>Order</label><input type="text" name="sort_order" value="<%= c.sort_order %>" style="width:60px"></div>
+      <div><label>Active</label><input type="checkbox" name="active" <%= c.active ? 'checked' : '' %>></div>
+      <button class="btn small" type="submit">Save</button>
+    </form>
+    <form method="post" action="<%= base %>/admin/categories" onsubmit="return confirm('Remove this category?')" style="margin-top:6px">
+      <input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="<%= c.id %>">
+      <button class="btn ghost small" type="submit">Delete</button>
+    </form>
+  </div>
+<% }) %>
+
+<h2>Add a category</h2>
+<form method="post" action="<%= base %>/admin/categories" class="inline" style="align-items:flex-end">
+  <input type="hidden" name="action" value="add">
+  <div><label>Label</label><input type="text" name="label" placeholder="e.g. Outdated" style="width:180px"></div>
+  <div><label>Colour</label><input type="text" name="color" class="mono" placeholder="#0f766e" style="width:110px"></div>
+  <button class="btn" type="submit">Add</button>
+</form>
+<p class="hint" style="margin-top:8px">A category in use can't be deleted &mdash; it's deactivated instead, so published verdicts keep their badge.</p>
+<%- include('partials/foot') %>

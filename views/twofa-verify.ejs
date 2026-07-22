@@ -1,0 +1,10 @@
+<%- include('partials/head') %>
+<h1>Two-factor</h1>
+<p class="sub">Enter the 6-digit code from your authenticator app.</p>
+<% if (error) { %><div class="err"><%= error %></div><% } %>
+<form method="post" action="<%= base %>/admin/2fa-verify" style="max-width:280px">
+  <label>Authentication code</label>
+  <input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" placeholder="000000" autofocus>
+  <div style="margin-top:16px"><button class="btn" type="submit">Verify</button></div>
+</form>
+<%- include('partials/foot') %>

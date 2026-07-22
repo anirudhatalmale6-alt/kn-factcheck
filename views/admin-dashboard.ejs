@@ -1,0 +1,48 @@
+<%- include('partials/head') %>
+<div class="row" style="justify-content:space-between">
+  <h1>Dashboard</h1>
+  <% if (can('submit')) { %><a class="btn" href="<%= base %>/admin/submit">+ Submit a URL</a><% } %>
+</div>
+<% if (typeof submitted !== 'undefined' && submitted) { %><div class="ok">Submitted &mdash; it's in the review queue for an editor.</div><% } %>
+<% if (!aiEnabled) { %>
+  <div class="notice warn"><strong>AI step not active yet.</strong> Add your Anthropic API key in <a href="<%= base %>/admin/settings">Settings</a> to enable real Claude analysis. Until then items get a placeholder assessment.</div>
+<% } %>
+
+<div class="stats">
+  <div class="stat"><b><%= stats.pending %></b><span>In queue</span></div>
+  <div class="stat"><b><%= stats.published %></b><span>Published</span></div>
+  <div class="stat"><b><%= stats.rejected %></b><span>Rejected</span></div>
+  <div class="stat"><b><%= stats.users %></b><span>Active users</span></div>
+</div>
+
+<% if (byCat.length) { %>
+  <h2>By verdict</h2>
+  <div class="inline" style="margin-bottom:8px">
+    <% byCat.forEach(function(b){ %>
+      <span class="inline"><%- include('partials/badge', { cat: b.cat }) %> <span class="conf"><%= b.n %></span></span>
+    <% }) %>
+  </div>
+<% } %>
+
+<h2>Awaiting review</h2>
+<% if (!queue.length) { %>
+  <div class="empty">Nothing in the queue.</div>
+<% } else { %>
+  <% queue.forEach(function(s){ %>
+    <div class="card">
+      <div class="row" style="justify-content:space-between">
+        <div class="inline">
+          <% if (s.suggested_category) { %><%- include('partials/badge', { cat: s.suggested_category }) %><% } %>
+          <span class="conf">AI conf <%= s.confidence != null ? (s.confidence*100).toFixed(0)+'%' : 'n/a' %></span>
+        </div>
+        <span class="meta"><%= (s.created_at||'').slice(0,16) %></span>
+      </div>
+      <h3 style="margin-top:8px">
+        <% if (can('review')) { %><a href="<%= base %>/admin/review/<%= s.id %>"><%= s.raw_title || s.url %></a>
+        <% } else { %><%= s.raw_title || s.url %><% } %>
+      </h3>
+      <div class="meta"><%= s.source_domain %></div>
+    </div>
+  <% }) %>
+<% } %>
+<%- include('partials/foot') %>

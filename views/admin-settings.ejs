@@ -1,0 +1,37 @@
+<%- include('partials/head') %>
+<h1>Settings</h1>
+<% if (saved) { %><div class="ok">Settings saved.</div><% } %>
+<form method="post" action="<%= base %>/admin/settings" style="max-width:640px">
+
+  <label>Site name</label>
+  <input type="text" name="site_name" value="<%= site_name %>">
+
+  <label>Anthropic API key <span class="hint">(<%= keySet ? 'a key is currently set' : 'not set yet' %>)</span></label>
+  <input type="password" name="anthropic_api_key" placeholder="<%= keySet ? 'leave blank to keep current key' : 'sk-ant-...' %>" autocomplete="off">
+  <div class="hint">Paste your key from console.anthropic.com to turn on real Claude analysis. Leave blank to keep the existing one<% if (keySet) { %>, or type <span class="mono">__CLEAR__</span> to remove it<% } %>.</div>
+
+  <label>Model</label>
+  <select name="model">
+    <option value="claude-opus-4-8" <%= model==='claude-opus-4-8'?'selected':'' %>>Claude Opus 4.8 - best judgment (recommended)</option>
+    <option value="claude-sonnet-5" <%= model==='claude-sonnet-5'?'selected':'' %>>Claude Sonnet 5 - cheaper, high volume</option>
+    <option value="claude-haiku-4-5" <%= model==='claude-haiku-4-5'?'selected':'' %>>Claude Haiku 4.5 - fastest/cheapest</option>
+  </select>
+
+  <div class="split" style="margin-top:4px">
+    <div>
+      <label>Theme</label>
+      <select name="theme">
+        <option value="light" <%= theme==='light'?'selected':'' %>>Light</option>
+        <option value="dark" <%= theme==='dark'?'selected':'' %>>Dark</option>
+      </select>
+    </div>
+    <div>
+      <label>Accent colour</label>
+      <input type="text" name="accent" value="<%= accent %>" placeholder="#2b6a5b">
+      <div class="hint">Hex, e.g. #2b6a5b</div>
+    </div>
+  </div>
+
+  <div style="margin-top:18px"><button class="btn" type="submit">Save settings</button></div>
+</form>
+<%- include('partials/foot') %>

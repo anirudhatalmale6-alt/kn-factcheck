@@ -2,16 +2,17 @@
 const path = require('path');
 const express = require('express');
 const session = require('express-session');
+const QRCode = require('qrcode');
 
 const db = require('./db');
+const { hashPassword, verifyPassword, settingsGet, settingsSet, listCategories, categoryMap } = db;
 const { scrape, normalizeUrl } = require('./lib/scrape');
-const { analyse, CATEGORIES, CATEGORY_META } = require('./lib/analyse');
+const { analyse } = require('./lib/analyse');
+const { generateSecret, totpVerify, otpauthURL } = require('./lib/auth');
 
 const app = express();
 const PORT = process.env.PORT || 3925;
-const BASE = process.env.BASE_PATH || '/kn';         // mounted under /kn behind nginx
-const ADMIN_USER = process.env.ADMIN_USER || 'admin';
-const ADMIN_PASS = process.env.ADMIN_PASS || 'factcheck2026';
+const BASE = process.env.BASE_PATH || '/kn';
 
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
@@ -25,36 +26,61 @@ app.use(session({
   cookie: { httpOnly: true, sameSite: 'lax', maxAge: 1000 * 60 * 60 * 8 },
 }));
 
-// Make base path, category metadata and login state available to every view.
+// --------------------------------------------------------------------------
+// Roles & permissions
+// --------------------------------------------------------------------------
+const ROLES = ['admin', 'editor', 'policy_writer', 'submitter'];
+const ROLE_LABEL = { admin: 'Admin', editor: 'Web editor', policy_writer: 'Policy writer', submitter: 'Submitter' };
+const PERMS = {
+  submit:     ['submitter', 'editor', 'admin'],
+  review:     ['editor', 'admin'],
+  policy:     ['policy_writer', 'admin'],
+  users:      ['admin'],
+  settings:   ['admin'],
+  categories: ['admin'],
+};
+function can(user, action) {
+  return !!(user && PERMS[action] && PERMS[action].includes(user.role));
+}
+
+// Per-request locals
 app.use((req, res, next) => {
+  const cats = listCategories(true);
   res.locals.base = BASE;
-  res.locals.CATEGORY_META = CATEGORY_META;
-  res.locals.CATEGORIES = CATEGORIES;
-  res.locals.isAdmin = !!(req.session && req.session.admin);
-  res.locals.aiEnabled = !!process.env.ANTHROPIC_API_KEY;
+  res.locals.user = (req.session && req.session.user) || null;
+  res.locals.can = (action) => can(res.locals.user, action);
+  res.locals.CATEGORY_META = categoryMap();
+  res.locals.CATEGORIES = cats.map((c) => c.key);
+  res.locals.categories = cats;
+  res.locals.ROLE_LABEL = ROLE_LABEL;
+  res.locals.site_name = settingsGet('site_name', 'Kashmir Fact-Check');
+  res.locals.theme = settingsGet('theme', 'light');
+  res.locals.accent = settingsGet('accent', '#2b6a5b');
+  res.locals.aiEnabled = !!(settingsGet('anthropic_api_key', '') || process.env.ANTHROPIC_API_KEY);
   res.locals.path = req.path;
   next();
 });
 
 const router = express.Router();
 
-function requireAdmin(req, res, next) {
-  if (req.session && req.session.admin) return next();
+function requireAuth(req, res, next) {
+  if (req.session && req.session.user) return next();
   return res.redirect(BASE + '/admin/login');
+}
+function requireRole(action) {
+  return (req, res, next) => {
+    if (!req.session || !req.session.user) return res.redirect(BASE + '/admin/login');
+    if (!can(req.session.user, action)) return res.status(403).render('notfound', { title: 'No access' });
+    next();
+  };
 }
 
 function slugify(s) {
-  return String(s || '')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 80) || 'fact-check';
+  return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80) || 'fact-check';
 }
 function uniqueSlug(base) {
   let slug = base, n = 1;
-  while (db.prepare('SELECT 1 FROM reviews WHERE slug = ?').get(slug)) {
-    slug = base + '-' + (++n);
-  }
+  while (db.prepare('SELECT 1 FROM reviews WHERE slug = ?').get(slug)) slug = base + '-' + (++n);
   return slug;
 }
 
@@ -65,15 +91,13 @@ router.get('/', (req, res) => {
   const items = db.prepare(`
     SELECT r.*, s.url, s.source_domain, s.raw_title
     FROM reviews r JOIN submissions s ON s.id = r.submission_id
-    WHERE s.status = 'published'
-    ORDER BY r.published_at DESC
+    WHERE s.status = 'published' ORDER BY r.published_at DESC
   `).all();
-  res.render('public-list', { title: 'Kashmir Fact-Check', items });
+  res.render('public-list', { title: res.locals.site_name, items });
 });
-
 router.get('/fact-check/:slug', (req, res) => {
   const item = db.prepare(`
-    SELECT r.*, s.url, s.source_domain, s.raw_title, s.raw_author, s.created_at AS submitted_at
+    SELECT r.*, s.url, s.source_domain, s.raw_title, s.raw_author
     FROM reviews r JOIN submissions s ON s.id = r.submission_id
     WHERE r.slug = ? AND s.status = 'published'
   `).get(req.params.slug);
@@ -85,75 +109,98 @@ router.get('/fact-check/:slug', (req, res) => {
 });
 
 // --------------------------------------------------------------------------
-// Auth
+// Auth (with optional 2FA second step)
 // --------------------------------------------------------------------------
-router.get('/admin/login', (req, res) => {
-  res.render('login', { title: 'Sign in', error: null });
-});
+router.get('/admin/login', (req, res) => res.render('login', { title: 'Sign in', error: null }));
 router.post('/admin/login', (req, res) => {
   const { username, password } = req.body;
-  if (username === ADMIN_USER && password === ADMIN_PASS) {
-    req.session.admin = { user: username };
-    return res.redirect(BASE + '/admin');
+  const u = db.prepare('SELECT * FROM users WHERE username = ? AND active = 1').get(String(username || '').trim());
+  if (!u || !verifyPassword(password, u.password_hash)) {
+    return res.status(401).render('login', { title: 'Sign in', error: 'Invalid credentials' });
   }
-  res.status(401).render('login', { title: 'Sign in', error: 'Invalid credentials' });
+  if (u.twofa_enabled) {
+    req.session.pending2fa = u.id;
+    return res.render('twofa-verify', { title: 'Two-factor', error: null });
+  }
+  req.session.user = { id: u.id, username: u.username, name: u.name, role: u.role };
+  res.redirect(BASE + '/admin');
 });
-router.post('/admin/logout', (req, res) => {
-  req.session.destroy(() => res.redirect(BASE + '/'));
+router.post('/admin/2fa-verify', (req, res) => {
+  const uid = req.session.pending2fa;
+  if (!uid) return res.redirect(BASE + '/admin/login');
+  const u = db.prepare('SELECT * FROM users WHERE id = ?').get(uid);
+  if (!u || !totpVerify(u.twofa_secret, req.body.code)) {
+    return res.status(401).render('twofa-verify', { title: 'Two-factor', error: 'Incorrect code, try again' });
+  }
+  delete req.session.pending2fa;
+  req.session.user = { id: u.id, username: u.username, name: u.name, role: u.role };
+  res.redirect(BASE + '/admin');
 });
+router.post('/admin/logout', (req, res) => req.session.destroy(() => res.redirect(BASE + '/')));
 
 // --------------------------------------------------------------------------
-// Admin - queue / dashboard
+// Admin dashboard
 // --------------------------------------------------------------------------
-router.get('/admin', requireAdmin, (req, res) => {
+router.get('/admin', requireAuth, (req, res) => {
+  const stats = {
+    pending: db.prepare(`SELECT COUNT(*) c FROM submissions WHERE status IN ('pending','analyzed')`).get().c,
+    published: db.prepare(`SELECT COUNT(*) c FROM submissions WHERE status='published'`).get().c,
+    rejected: db.prepare(`SELECT COUNT(*) c FROM submissions WHERE status='rejected'`).get().c,
+    users: db.prepare(`SELECT COUNT(*) c FROM users WHERE active=1`).get().c,
+  };
+  const byCat = db.prepare(`
+    SELECT r.final_category cat, COUNT(*) n FROM reviews r JOIN submissions s ON s.id=r.submission_id
+    WHERE s.status='published' GROUP BY r.final_category ORDER BY n DESC
+  `).all();
   const queue = db.prepare(`
     SELECT s.*, a.suggested_category, a.confidence
     FROM submissions s
-    LEFT JOIN ai_analyses a ON a.id = (SELECT id FROM ai_analyses WHERE submission_id = s.id ORDER BY id DESC LIMIT 1)
-    WHERE s.status IN ('pending','analyzed')
-    ORDER BY s.created_at DESC
+    LEFT JOIN ai_analyses a ON a.id = (SELECT id FROM ai_analyses WHERE submission_id=s.id ORDER BY id DESC LIMIT 1)
+    WHERE s.status IN ('pending','analyzed') ORDER BY s.created_at DESC
   `).all();
-  const published = db.prepare(`
-    SELECT s.id, s.source_domain, r.slug, r.final_category, r.public_summary, r.published_at
-    FROM submissions s JOIN reviews r ON r.submission_id = s.id
-    WHERE s.status = 'published' ORDER BY r.published_at DESC LIMIT 20
-  `).all();
-  res.render('admin-queue', { title: 'Review queue', queue, published });
+  res.render('admin-dashboard', { title: 'Dashboard', stats, byCat, queue, submitted: req.query.submitted === '1' });
 });
 
-// Submit a URL -> scrape -> analyse -> create submission + ai_analysis.
-router.get('/admin/submit', requireAdmin, (req, res) => {
-  res.render('admin-submit', { title: 'Submit a URL', error: null, url: '' });
-});
-router.post('/admin/submit', requireAdmin, async (req, res) => {
+// --------------------------------------------------------------------------
+// Submit -> scrape -> analyse
+// --------------------------------------------------------------------------
+router.get('/admin/submit', requireRole('submit'), (req, res) =>
+  res.render('admin-submit', { title: 'Submit a URL', error: null, url: '' }));
+
+router.post('/admin/submit', requireRole('submit'), async (req, res) => {
   const url = String(req.body.url || '').trim();
   if (!/^https?:\/\//i.test(url)) {
     return res.status(400).render('admin-submit', { title: 'Submit a URL', error: 'Please enter a valid http(s) URL.', url });
   }
+  const afterSubmit = (id) => can(req.session.user, 'review') ? (BASE + '/admin/review/' + id) : (BASE + '/admin?submitted=1');
   const normalized = normalizeUrl(url);
   const existing = db.prepare('SELECT id FROM submissions WHERE normalized_url = ?').get(normalized);
-  if (existing) return res.redirect(BASE + '/admin/review/' + existing.id);
+  if (existing) return res.redirect(afterSubmit(existing.id));
 
   let scraped;
-  try {
-    scraped = await scrape(url);
-  } catch (e) {
-    return res.status(502).render('admin-submit', { title: 'Submit a URL', error: 'Could not fetch that URL: ' + e.message, url });
-  }
+  try { scraped = await scrape(url); }
+  catch (e) { return res.status(502).render('admin-submit', { title: 'Submit a URL', error: 'Could not fetch that URL: ' + e.message, url }); }
 
   const info = db.prepare(`
-    INSERT INTO submissions (url, normalized_url, source_domain, raw_title, raw_text, raw_author, status)
-    VALUES (?, ?, ?, ?, ?, ?, 'pending')
-  `).run(url, normalized, scraped.domain, scraped.title, scraped.text, scraped.author);
+    INSERT INTO submissions (url, normalized_url, source_domain, raw_title, raw_text, raw_author, status, submitted_by)
+    VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)
+  `).run(url, normalized, scraped.domain, scraped.title, scraped.text, scraped.author, req.session.user.id);
   const submissionId = info.lastInsertRowid;
 
   const policy = db.prepare('SELECT * FROM policies WHERE is_active = 1').get();
   let a;
   try {
-    a = await analyse({ policyBody: policy ? policy.body : '', title: scraped.title, text: scraped.text, url });
+    a = await analyse({
+      policyBody: policy ? policy.body : '',
+      title: scraped.title, text: scraped.text, url,
+      apiKey: settingsGet('anthropic_api_key', ''),
+      model: settingsGet('model', 'claude-opus-4-8'),
+      categories: listCategories(true).map((c) => c.key),
+    });
   } catch (e) {
-    a = { extracted_claims: [], suggested_category: 'unverified', reasoning: 'AI analysis failed: ' + e.message,
-          confidence: 0, public_summary: '', model_used: 'error', input_tokens: null, output_tokens: null, raw_response: null };
+    a = { extracted_claims: [], suggested_category: (res.locals.CATEGORIES[0] || 'unverified'),
+          reasoning: 'AI analysis failed: ' + e.message, confidence: 0, public_summary: '',
+          model_used: 'error', input_tokens: null, output_tokens: null, raw_response: null };
   }
 
   db.prepare(`
@@ -165,11 +212,13 @@ router.post('/admin/submit', requireAdmin, async (req, res) => {
     a.input_tokens, a.output_tokens, a.raw_response);
 
   db.prepare(`UPDATE submissions SET status = 'analyzed' WHERE id = ?`).run(submissionId);
-  res.redirect(BASE + '/admin/review/' + submissionId);
+  res.redirect(afterSubmit(submissionId));
 });
 
-// Review one submission.
-router.get('/admin/review/:id', requireAdmin, (req, res) => {
+// --------------------------------------------------------------------------
+// Review
+// --------------------------------------------------------------------------
+router.get('/admin/review/:id', requireRole('review'), (req, res) => {
   const sub = db.prepare('SELECT * FROM submissions WHERE id = ?').get(req.params.id);
   if (!sub) return res.status(404).render('notfound', { title: 'Not found' });
   const ai = db.prepare('SELECT * FROM ai_analyses WHERE submission_id = ? ORDER BY id DESC LIMIT 1').get(sub.id);
@@ -178,69 +227,187 @@ router.get('/admin/review/:id', requireAdmin, (req, res) => {
   try { claims = ai && ai.extracted_claims ? JSON.parse(ai.extracted_claims) : []; } catch (e) {}
   res.render('admin-review', { title: 'Review #' + sub.id, sub, ai, review, claims });
 });
-
-// Publish / reject.
-router.post('/admin/review/:id', requireAdmin, (req, res) => {
+router.post('/admin/review/:id', requireRole('review'), (req, res) => {
   const sub = db.prepare('SELECT * FROM submissions WHERE id = ?').get(req.params.id);
   if (!sub) return res.status(404).render('notfound', { title: 'Not found' });
-
-  const action = req.body.action;
-  if (action === 'reject') {
+  if (req.body.action === 'reject') {
     db.prepare(`UPDATE submissions SET status = 'rejected' WHERE id = ?`).run(sub.id);
     return res.redirect(BASE + '/admin');
   }
-
-  const category = CATEGORIES.includes(req.body.final_category) ? req.body.final_category : 'unverified';
+  const validKeys = res.locals.CATEGORIES;
+  const category = validKeys.includes(req.body.final_category) ? req.body.final_category : validKeys[0];
   const publicSummary = String(req.body.public_summary || '').trim();
   const editorNotes = String(req.body.editor_notes || '').trim();
   const ai = db.prepare('SELECT * FROM ai_analyses WHERE submission_id = ? ORDER BY id DESC LIMIT 1').get(sub.id);
   const overrode = ai && ai.suggested_category !== category ? 1 : 0;
 
   if (!publicSummary) {
-    const claims = (() => { try { return JSON.parse(ai.extracted_claims || '[]'); } catch (e) { return []; } })();
+    let claims = []; try { claims = JSON.parse(ai.extracted_claims || '[]'); } catch (e) {}
     return res.status(400).render('admin-review', {
       title: 'Review #' + sub.id, sub, ai,
       review: db.prepare('SELECT * FROM reviews WHERE submission_id = ? ORDER BY id DESC LIMIT 1').get(sub.id),
       claims, error: 'A public summary is required before publishing.',
     });
   }
-
   const existing = db.prepare('SELECT * FROM reviews WHERE submission_id = ? ORDER BY id DESC LIMIT 1').get(sub.id);
   if (existing) {
-    db.prepare(`UPDATE reviews SET final_category=?, public_summary=?, editor_notes=?, overrode_ai=?, published_at=datetime('now') WHERE id=?`)
-      .run(category, publicSummary, editorNotes, overrode, existing.id);
+    db.prepare(`UPDATE reviews SET final_category=?, public_summary=?, editor_notes=?, overrode_ai=?, reviewed_by=?, published_at=datetime('now') WHERE id=?`)
+      .run(category, publicSummary, editorNotes, overrode, req.session.user.id, existing.id);
   } else {
     const slug = uniqueSlug(slugify(sub.raw_title || sub.source_domain || 'fact-check'));
-    db.prepare(`INSERT INTO reviews (submission_id, final_category, public_summary, slug, editor_notes, overrode_ai, published_at)
-                VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`)
-      .run(sub.id, category, publicSummary, slug, editorNotes, overrode);
+    db.prepare(`INSERT INTO reviews (submission_id, final_category, public_summary, slug, editor_notes, overrode_ai, reviewed_by, published_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`)
+      .run(sub.id, category, publicSummary, slug, editorNotes, overrode, req.session.user.id);
   }
   db.prepare(`UPDATE submissions SET status = 'published' WHERE id = ?`).run(sub.id);
   res.redirect(BASE + '/admin');
 });
 
 // --------------------------------------------------------------------------
-// Admin - editorial policy (policy is a DB row, editable without deploy)
+// Editorial policy
 // --------------------------------------------------------------------------
-router.get('/admin/policy', requireAdmin, (req, res) => {
+router.get('/admin/policy', requireRole('policy'), (req, res) => {
   const policy = db.prepare('SELECT * FROM policies WHERE is_active = 1').get();
   const history = db.prepare('SELECT id, title, created_at, is_active FROM policies ORDER BY id DESC').all();
   res.render('admin-policy', { title: 'Editorial policy', policy, history, saved: req.query.saved === '1' });
 });
-router.post('/admin/policy', requireAdmin, (req, res) => {
+router.post('/admin/policy', requireRole('policy'), (req, res) => {
   const title = String(req.body.title || '').trim() || 'Editorial Policy';
   const body = String(req.body.body || '').trim();
   if (!body) return res.redirect(BASE + '/admin/policy');
-  // New active version; deactivate the current one (one-active-policy index).
-  const tx = db.transaction(() => {
+  db.transaction(() => {
     db.prepare('UPDATE policies SET is_active = 0 WHERE is_active = 1').run();
     db.prepare('INSERT INTO policies (title, body, is_active) VALUES (?, ?, 1)').run(title, body);
-  });
-  tx();
+  })();
   res.redirect(BASE + '/admin/policy?saved=1');
+});
+
+// --------------------------------------------------------------------------
+// Categories (database of verdict categories)
+// --------------------------------------------------------------------------
+router.get('/admin/categories', requireRole('categories'), (req, res) => {
+  res.render('admin-categories', { title: 'Categories', cats: listCategories(false), saved: req.query.saved === '1' });
+});
+router.post('/admin/categories', requireRole('categories'), (req, res) => {
+  const a = req.body.action;
+  if (a === 'add') {
+    const key = slugify(req.body.key || req.body.label).replace(/-/g, '_');
+    const label = String(req.body.label || '').trim() || key;
+    const color = /^#[0-9a-f]{6}$/i.test(req.body.color) ? req.body.color : '#6b7280';
+    if (key && !db.prepare('SELECT 1 FROM categories WHERE key=?').get(key)) {
+      const max = db.prepare('SELECT COALESCE(MAX(sort_order),0) m FROM categories').get().m;
+      db.prepare('INSERT INTO categories (key,label,color,sort_order) VALUES (?,?,?,?)').run(key, label, color, max + 1);
+    }
+  } else if (a === 'update') {
+    const id = req.body.id;
+    const label = String(req.body.label || '').trim();
+    const color = /^#[0-9a-f]{6}$/i.test(req.body.color) ? req.body.color : '#6b7280';
+    const sort = parseInt(req.body.sort_order, 10) || 0;
+    const active = req.body.active ? 1 : 0;
+    db.prepare('UPDATE categories SET label=?, color=?, sort_order=?, active=? WHERE id=?').run(label, color, sort, active, id);
+  } else if (a === 'delete') {
+    const cat = db.prepare('SELECT * FROM categories WHERE id=?').get(req.body.id);
+    const used = cat && db.prepare('SELECT 1 FROM reviews WHERE final_category=? LIMIT 1').get(cat.key);
+    if (cat && !used) db.prepare('DELETE FROM categories WHERE id=?').run(cat.id);
+    else if (cat) db.prepare('UPDATE categories SET active=0 WHERE id=?').run(cat.id); // in use -> deactivate
+  }
+  res.redirect(BASE + '/admin/categories?saved=1');
+});
+
+// --------------------------------------------------------------------------
+// Settings (API key, model, theme, accent, site name)
+// --------------------------------------------------------------------------
+router.get('/admin/settings', requireRole('settings'), (req, res) => {
+  const keySet = !!settingsGet('anthropic_api_key', '');
+  res.render('admin-settings', {
+    title: 'Settings', keySet,
+    model: settingsGet('model', 'claude-opus-4-8'),
+    theme: settingsGet('theme', 'light'),
+    accent: settingsGet('accent', '#2b6a5b'),
+    site_name: settingsGet('site_name', 'Kashmir Fact-Check'),
+    saved: req.query.saved === '1',
+  });
+});
+router.post('/admin/settings', requireRole('settings'), (req, res) => {
+  settingsSet('site_name', String(req.body.site_name || '').trim() || 'Kashmir Fact-Check');
+  settingsSet('model', ['claude-opus-4-8', 'claude-sonnet-5', 'claude-haiku-4-5'].includes(req.body.model) ? req.body.model : 'claude-opus-4-8');
+  settingsSet('theme', req.body.theme === 'dark' ? 'dark' : 'light');
+  settingsSet('accent', /^#[0-9a-f]{6}$/i.test(req.body.accent) ? req.body.accent : '#2b6a5b');
+  const key = String(req.body.anthropic_api_key || '').trim();
+  if (key === '__CLEAR__') settingsSet('anthropic_api_key', '');
+  else if (key) settingsSet('anthropic_api_key', key);   // only overwrite when a new value is given
+  res.redirect(BASE + '/admin/settings?saved=1');
+});
+
+// --------------------------------------------------------------------------
+// Users
+// --------------------------------------------------------------------------
+router.get('/admin/users', requireRole('users'), (req, res) => {
+  const users = db.prepare('SELECT id, username, name, role, twofa_enabled, active, created_at FROM users ORDER BY id').all();
+  res.render('admin-users', { title: 'Users', users, ROLES, error: req.query.error || null, saved: req.query.saved === '1' });
+});
+router.post('/admin/users', requireRole('users'), (req, res) => {
+  const a = req.body.action;
+  const activeAdmins = () => db.prepare(`SELECT COUNT(*) c FROM users WHERE role='admin' AND active=1`).get().c;
+
+  if (a === 'add') {
+    const username = String(req.body.username || '').trim().toLowerCase();
+    const name = String(req.body.name || '').trim();
+    const role = ROLES.includes(req.body.role) ? req.body.role : 'submitter';
+    const pw = String(req.body.password || '');
+    if (!username || !pw) return res.redirect(BASE + '/admin/users?error=' + encodeURIComponent('Username and password are required'));
+    if (db.prepare('SELECT 1 FROM users WHERE username=?').get(username)) return res.redirect(BASE + '/admin/users?error=' + encodeURIComponent('Username already exists'));
+    db.prepare('INSERT INTO users (username, name, password_hash, role) VALUES (?,?,?,?)').run(username, name, hashPassword(pw), role);
+  } else if (a === 'update') {
+    const u = db.prepare('SELECT * FROM users WHERE id=?').get(req.body.id);
+    if (!u) return res.redirect(BASE + '/admin/users');
+    const role = ROLES.includes(req.body.role) ? req.body.role : u.role;
+    const name = String(req.body.name || '').trim();
+    const active = req.body.active ? 1 : 0;
+    // Guard: never remove the last active admin
+    if ((u.role === 'admin' && (role !== 'admin' || !active)) && activeAdmins() <= 1) {
+      return res.redirect(BASE + '/admin/users?error=' + encodeURIComponent('Cannot demote/disable the last admin'));
+    }
+    db.prepare('UPDATE users SET name=?, role=?, active=? WHERE id=?').run(name, role, active, u.id);
+    if (String(req.body.password || '')) db.prepare('UPDATE users SET password_hash=? WHERE id=?').run(hashPassword(req.body.password), u.id);
+  } else if (a === 'delete') {
+    const u = db.prepare('SELECT * FROM users WHERE id=?').get(req.body.id);
+    if (u && !(u.role === 'admin' && activeAdmins() <= 1) && u.id !== req.session.user.id) {
+      db.prepare('DELETE FROM users WHERE id=?').run(u.id);
+    }
+  }
+  res.redirect(BASE + '/admin/users?saved=1');
+});
+
+// --------------------------------------------------------------------------
+// Two-factor setup (each user manages their own)
+// --------------------------------------------------------------------------
+router.get('/admin/2fa', requireAuth, async (req, res) => {
+  const u = db.prepare('SELECT * FROM users WHERE id=?').get(req.session.user.id);
+  let qr = null, secret = null;
+  if (!u.twofa_enabled) {
+    secret = req.session.twofaSetup || generateSecret();
+    req.session.twofaSetup = secret;
+    qr = await QRCode.toDataURL(otpauthURL(u.username, secret, res.locals.site_name || 'KashmirFactCheck'));
+  }
+  res.render('admin-2fa', { title: 'Two-factor', enabled: !!u.twofa_enabled, qr, secret, error: null });
+});
+router.post('/admin/2fa', requireAuth, async (req, res) => {
+  const u = db.prepare('SELECT * FROM users WHERE id=?').get(req.session.user.id);
+  if (req.body.action === 'disable') {
+    db.prepare('UPDATE users SET twofa_enabled=0, twofa_secret=NULL WHERE id=?').run(u.id);
+    return res.redirect(BASE + '/admin/2fa');
+  }
+  const secret = req.session.twofaSetup;
+  if (!secret || !totpVerify(secret, req.body.code)) {
+    const qr = await QRCode.toDataURL(otpauthURL(u.username, secret || generateSecret(), res.locals.site_name || 'KashmirFactCheck'));
+    return res.status(400).render('admin-2fa', { title: 'Two-factor', enabled: false, qr, secret, error: 'Code did not match. Try again.' });
+  }
+  db.prepare('UPDATE users SET twofa_enabled=1, twofa_secret=? WHERE id=?').run(secret, u.id);
+  delete req.session.twofaSetup;
+  res.redirect(BASE + '/admin/2fa');
 });
 
 app.use(BASE, router);
 app.get('/', (req, res) => res.redirect(BASE + '/'));
-
 app.listen(PORT, () => console.log(`kn-factcheck listening on :${PORT} (base ${BASE})`));

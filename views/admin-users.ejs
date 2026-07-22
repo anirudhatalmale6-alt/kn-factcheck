@@ -1,0 +1,40 @@
+<%- include('partials/head') %>
+<h1>Users</h1>
+<p class="sub">Accounts and roles. Admin (everything) · Web editor (review &amp; publish) · Policy writer (edit policy) · Submitter (submit only).</p>
+<% if (error) { %><div class="err"><%= error %></div><% } %>
+<% if (saved) { %><div class="ok">Saved.</div><% } %>
+
+<% users.forEach(function(u){ %>
+  <div class="card">
+    <div class="row" style="justify-content:space-between;align-items:center">
+      <strong class="mono"><%= u.username %></strong>
+      <span class="meta">2FA <%= u.twofa_enabled ? 'on' : 'off' %> · <%= u.active ? 'active' : 'disabled' %></span>
+    </div>
+    <form method="post" action="<%= base %>/admin/users" class="inline" style="align-items:flex-end;margin-top:10px">
+      <input type="hidden" name="action" value="update"><input type="hidden" name="id" value="<%= u.id %>">
+      <div><label>Name</label><input type="text" name="name" value="<%= u.name || '' %>" style="width:150px"></div>
+      <div><label>Role</label>
+        <select name="role"><% ROLES.forEach(function(r){ %><option value="<%= r %>" <%= u.role===r?'selected':'' %>><%= ROLE_LABEL[r] %></option><% }) %></select>
+      </div>
+      <div><label>Active</label><input type="checkbox" name="active" <%= u.active?'checked':'' %>></div>
+      <div><label>New password</label><input type="password" name="password" placeholder="unchanged" autocomplete="new-password" style="width:130px"></div>
+      <button class="btn small" type="submit">Save</button>
+    </form>
+    <form method="post" action="<%= base %>/admin/users" onsubmit="return confirm('Delete <%= u.username %>?')" style="margin-top:6px">
+      <input type="hidden" name="action" value="delete"><input type="hidden" name="id" value="<%= u.id %>">
+      <button class="btn ghost small" type="submit">Delete</button>
+    </form>
+  </div>
+<% }) %>
+
+<h2>Add a user</h2>
+<form method="post" action="<%= base %>/admin/users" class="inline" style="align-items:flex-end">
+  <input type="hidden" name="action" value="add">
+  <div><label>Username</label><input type="text" name="username" style="width:140px"></div>
+  <div><label>Name</label><input type="text" name="name" style="width:160px"></div>
+  <div><label>Role</label><select name="role"><% ROLES.forEach(function(r){ %><option value="<%= r %>"><%= ROLE_LABEL[r] %></option><% }) %></select></div>
+  <div><label>Password</label><input type="password" name="password" autocomplete="new-password" style="width:140px"></div>
+  <button class="btn" type="submit">Add user</button>
+</form>
+<p class="hint" style="margin-top:8px">Each user turns on their own two-factor from the 2FA menu after signing in.</p>
+<%- include('partials/foot') %>
