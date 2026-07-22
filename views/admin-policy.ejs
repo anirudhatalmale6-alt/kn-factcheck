@@ -1,0 +1,23 @@
+<%- include('partials/head') %>
+<h1>Editorial policy</h1>
+<p class="sub">This text is what Claude assesses each item against. It's a database row &mdash; edit it any time, no redeploy. Saving creates a new active version and keeps the old one.</p>
+<% if (saved) { %><div class="ok">Policy saved &mdash; new version is now active.</div><% } %>
+
+<form method="post" action="<%= base %>/admin/policy">
+  <label>Title</label>
+  <input type="text" name="title" value="<%= policy ? policy.title : '' %>">
+  <label>Policy body</label>
+  <textarea name="body" style="min-height:340px"><%= policy ? policy.body : '' %></textarea>
+  <div style="margin-top:16px"><button class="btn" type="submit">Save new version</button></div>
+</form>
+
+<h2>Version history</h2>
+<% history.forEach(function(h){ %>
+  <div class="card">
+    <div class="row" style="justify-content:space-between">
+      <strong><%= h.title %></strong>
+      <span class="meta"><%= h.is_active ? 'ACTIVE' : '' %> · <%= (h.created_at||'').slice(0,16) %></span>
+    </div>
+  </div>
+<% }) %>
+<%- include('partials/foot') %>

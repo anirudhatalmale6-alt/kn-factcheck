@@ -1,0 +1,19 @@
+<%- include('partials/head') %>
+<h1>Fact-checks</h1>
+<p class="sub">Editorial assessments of claims circulating about Kashmir &mdash; checked against a published editorial policy.</p>
+
+<% if (!items.length) { %>
+  <div class="empty">No published fact-checks yet.<% if (isAdmin) { %> <a href="<%= base %>/admin/submit">Submit the first one &rarr;</a><% } %></div>
+<% } else { %>
+  <% items.forEach(function(it){ %>
+    <div class="card">
+      <div class="row" style="justify-content:space-between">
+        <%- include('partials/badge', { cat: it.final_category }) %>
+        <span class="meta"><%= (it.published_at||'').slice(0,10) %></span>
+      </div>
+      <h3 style="margin-top:8px"><a href="<%= base %>/fact-check/<%= it.slug %>"><%= it.public_summary %></a></h3>
+      <div class="meta">Source: <%= it.source_domain || 'unknown' %></div>
+    </div>
+  <% }) %>
+<% } %>
+<%- include('partials/foot') %>

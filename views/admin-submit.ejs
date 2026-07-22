@@ -1,0 +1,11 @@
+<%- include('partials/head') %>
+<h1>Submit a URL</h1>
+<p class="sub">Paste a news or social link. We fetch it, run it against the active editorial policy, and drop it in the review queue.</p>
+<% if (error) { %><div class="err"><%= error %></div><% } %>
+<form method="post" action="<%= base %>/admin/submit" style="max-width:640px">
+  <label>Article / post URL</label>
+  <input type="url" name="url" placeholder="https://example.com/story" value="<%= url %>" autofocus>
+  <div class="hint">Best results on news article pages. Social posts fetch limited text by design.</div>
+  <div style="margin-top:18px"><button class="btn" type="submit">Fetch &amp; analyse</button></div>
+</form>
+<%- include('partials/foot') %>

@@ -1,0 +1,12 @@
+<%- include('partials/head') %>
+<h1>Staff sign in</h1>
+<p class="sub">Submitting and reviewing fact-checks is restricted to the editorial team.</p>
+<% if (error) { %><div class="err"><%= error %></div><% } %>
+<form method="post" action="<%= base %>/admin/login" style="max-width:360px">
+  <label>Username</label>
+  <input type="text" name="username" autofocus autocomplete="username">
+  <label>Password</label>
+  <input type="password" name="password" autocomplete="current-password">
+  <div style="margin-top:18px"><button class="btn" type="submit">Sign in</button></div>
+</form>
+<%- include('partials/foot') %>

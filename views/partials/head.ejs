@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title><%= title %> · Kashmir Fact-Check</title>
+<link rel="stylesheet" href="<%= base %>/static/style.css">
+</head>
+<body>
+<header class="site">
+  <div class="wrap">
+    <a class="brand" href="<%= base %>/">Kashmir <span>Fact-Check</span></a>
+    <nav>
+      <a href="<%= base %>/">Fact-checks</a>
+      <% if (isAdmin) { %>
+        <a href="<%= base %>/admin">Queue</a>
+        <a href="<%= base %>/admin/submit">Submit</a>
+        <a href="<%= base %>/admin/policy">Policy</a>
+        <form action="<%= base %>/admin/logout" method="post" style="display:inline">
+          <button class="btn ghost small" type="submit">Sign out</button>
+        </form>
+      <% } else { %>
+        <a href="<%= base %>/admin/login">Staff sign in</a>
+      <% } %>
+    </nav>
+  </div>
+</header>
+<main><div class="wrap">

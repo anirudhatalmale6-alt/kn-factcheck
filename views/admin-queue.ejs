@@ -1,0 +1,44 @@
+<%- include('partials/head') %>
+<div class="row" style="justify-content:space-between">
+  <h1>Review queue</h1>
+  <a class="btn" href="<%= base %>/admin/submit">+ Submit a URL</a>
+</div>
+<% if (!aiEnabled) { %>
+  <div class="notice warn"><strong>AI step not active yet.</strong> No Anthropic API key is configured, so items get a placeholder assessment. Add the key to enable real Claude analysis &mdash; the rest of the flow works now.</div>
+<% } %>
+
+<h2>Awaiting review</h2>
+<% if (!queue.length) { %>
+  <div class="empty">Nothing in the queue.</div>
+<% } else { %>
+  <% queue.forEach(function(s){ %>
+    <div class="card">
+      <div class="row" style="justify-content:space-between">
+        <div>
+          <% if (s.suggested_category) { %><%- include('partials/badge', { cat: s.suggested_category }) %><% } %>
+          <span class="conf">AI conf <%= s.confidence != null ? (s.confidence*100).toFixed(0)+'%' : 'n/a' %></span>
+        </div>
+        <span class="meta"><%= (s.created_at||'').slice(0,16) %></span>
+      </div>
+      <h3 style="margin-top:8px"><a href="<%= base %>/admin/review/<%= s.id %>"><%= s.raw_title || s.url %></a></h3>
+      <div class="meta"><%= s.source_domain %></div>
+    </div>
+  <% }) %>
+<% } %>
+
+<h2>Recently published</h2>
+<% if (!published.length) { %>
+  <div class="empty">None yet.</div>
+<% } else { %>
+  <% published.forEach(function(p){ %>
+    <div class="card">
+      <div class="row" style="justify-content:space-between">
+        <%- include('partials/badge', { cat: p.final_category }) %>
+        <span class="meta"><%= (p.published_at||'').slice(0,10) %></span>
+      </div>
+      <h3 style="margin-top:8px"><a href="<%= base %>/fact-check/<%= p.slug %>"><%= p.public_summary %></a></h3>
+      <div class="meta"><%= p.source_domain %></div>
+    </div>
+  <% }) %>
+<% } %>
+<%- include('partials/foot') %>

@@ -1,0 +1,27 @@
+<%- include('partials/head') %>
+<p><a href="<%= base %>/">&larr; All fact-checks</a></p>
+<div class="row" style="justify-content:space-between">
+  <%- include('partials/badge', { cat: item.final_category }) %>
+  <span class="meta">Published <%= (item.published_at||'').slice(0,10) %></span>
+</div>
+
+<h1 style="margin-top:12px"><%= item.public_summary %></h1>
+
+<% if (claims && claims.length) { %>
+  <h2>Claim assessed</h2>
+  <ul class="claims"><% claims.forEach(function(c){ %><li><%= c %></li><% }) %></ul>
+<% } %>
+
+<% if (item.editor_notes) { %>
+  <h2>Editor's note</h2>
+  <p><%= item.editor_notes %></p>
+<% } %>
+
+<div class="card" style="margin-top:24px">
+  <div class="kv">
+    <div class="k">Original source</div><div><a href="<%= item.url %>" rel="nofollow noopener" target="_blank"><%= item.source_domain || item.url %></a></div>
+    <div class="k">Original title</div><div><%= item.raw_title || '(none)' %></div>
+    <% if (item.raw_author) { %><div class="k">Author</div><div><%= item.raw_author %></div><% } %>
+  </div>
+</div>
+<%- include('partials/foot') %>

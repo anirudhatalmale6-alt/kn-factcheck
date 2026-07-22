@@ -1,0 +1,71 @@
+<%- include('partials/head') %>
+<p><a href="<%= base %>/admin">&larr; Queue</a></p>
+<div class="row" style="justify-content:space-between">
+  <h1>Review #<%= sub.id %></h1>
+  <span class="meta"><%= sub.status %></span>
+</div>
+<% if (typeof error !== 'undefined' && error) { %><div class="err"><%= error %></div><% } %>
+
+<div class="card">
+  <h3><%= sub.raw_title || '(no title)' %></h3>
+  <div class="kv">
+    <div class="k">URL</div><div><a href="<%= sub.url %>" target="_blank" rel="nofollow noopener"><%= sub.url %></a></div>
+    <div class="k">Source</div><div><%= sub.source_domain %></div>
+    <% if (sub.raw_author) { %><div class="k">Author</div><div><%= sub.raw_author %></div><% } %>
+  </div>
+  <details style="margin-top:6px"><summary class="meta">Scraped text excerpt</summary>
+    <div class="excerpt"><%= (sub.raw_text||'').slice(0,4000) %></div>
+  </details>
+</div>
+
+<h2>AI assessment</h2>
+<div class="card">
+  <% if (ai && ai.model_used === 'stub') { %>
+    <div class="notice warn">Placeholder assessment (no API key yet).</div>
+  <% } %>
+  <div class="row">
+    <% if (ai) { %><%- include('partials/badge', { cat: ai.suggested_category }) %><% } %>
+    <span class="conf">confidence <%= ai && ai.confidence != null ? (ai.confidence*100).toFixed(0)+'%' : 'n/a' %></span>
+    <span class="conf"><%= ai ? (ai.model_used || '') : '' %></span>
+  </div>
+  <% if (claims && claims.length) { %>
+    <label style="margin-top:14px">Extracted claims</label>
+    <ul class="claims"><% claims.forEach(function(c){ %><li><%= c %></li><% }) %></ul>
+  <% } %>
+  <label style="margin-top:14px">Reasoning</label>
+  <p style="margin:4px 0 0"><%= ai ? ai.reasoning : '' %></p>
+</div>
+
+<h2>Editor decision</h2>
+<form method="post" action="<%= base %>/admin/review/<%= sub.id %>">
+  <div class="split">
+    <div>
+      <label>Final category</label>
+      <select name="final_category">
+        <% CATEGORIES.forEach(function(c){
+             var sel = (review ? review.final_category : (ai ? ai.suggested_category : 'unverified')) === c ? 'selected' : ''; %>
+          <option value="<%= c %>" <%= sel %>><%= CATEGORY_META[c].label %></option>
+        <% }) %>
+      </select>
+    </div>
+    <div>
+      <label>&nbsp;</label>
+      <div class="hint">The AI suggestion is a starting point &mdash; the published verdict is yours.</div>
+    </div>
+  </div>
+
+  <label>Public summary <span class="hint">(shown to readers &mdash; 1&ndash;2 neutral sentences, no full reprint)</span></label>
+  <textarea name="public_summary"><%= review ? review.public_summary : (ai ? ai.public_summary : '') %></textarea>
+
+  <label>Editor's note <span class="hint">(optional, internal-to-public context)</span></label>
+  <textarea name="editor_notes"><%= review ? review.editor_notes : '' %></textarea>
+
+  <div class="row" style="margin-top:18px">
+    <button class="btn" type="submit" name="action" value="publish"><%= sub.status === 'published' ? 'Update published' : 'Publish' %></button>
+    <button class="btn danger" type="submit" name="action" value="reject" formnovalidate>Reject</button>
+    <% if (review && sub.status === 'published') { %>
+      <a class="btn ghost" href="<%= base %>/fact-check/<%= review.slug %>" target="_blank">View live &rarr;</a>
+    <% } %>
+  </div>
+</form>
+<%- include('partials/foot') %>
