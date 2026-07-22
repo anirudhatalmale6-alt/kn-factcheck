@@ -2,26 +2,9 @@
 <h1>Submit for checking</h1>
 <% if (done) { %>
   <div class="ok">Thanks &mdash; your submission has been received and added to our queue for an editor to review.</div>
-
-  <% if (result && result.model_used && result.model_used !== 'error') { %>
-    <h2 style="margin-top:22px">Automated first check</h2>
-    <div class="card">
-      <div class="notice">This is an automated read by our AI, checked against our <a href="<%= base %>/standards">editorial policy</a>. It is <strong>not yet a published verdict</strong> &mdash; one of our editors reviews every item before it goes live.</div>
-      <div class="row" style="margin-top:6px">
-        <%- include('partials/badge', { cat: result.suggested_category }) %>
-        <span class="conf">confidence <%= result.confidence != null ? (result.confidence*100).toFixed(0)+'%' : 'n/a' %></span>
-      </div>
-      <% if (result.public_summary) { %><p style="margin:12px 0 0;font-size:1.05rem"><%= result.public_summary %></p><% } %>
-      <% if (result.reasoning) { %>
-        <label style="margin-top:14px">Reasoning</label>
-        <p style="margin:4px 0 0"><%= result.reasoning %></p>
-      <% } %>
-    </div>
-  <% } %>
-
   <p style="margin-top:18px"><a class="btn ghost" href="<%= base %>/submit-tip">Submit another</a> <a class="btn ghost" href="<%= base %>/">Back to fact-checks</a></p>
 <% } else { %>
-  <p class="sub">Seen a claim about Kashmir you'd like checked? Paste the link and you'll get an instant automated read &mdash; then our editors review it before anything is published. No account needed.</p>
+  <p class="sub">Seen a claim about Kashmir you'd like checked? Paste the link and it goes straight to our editorial team to review. No account needed.</p>
   <% if (error) { %><div class="err"><%= error %></div><% } %>
   <form method="post" action="<%= base %>/submit-tip" style="max-width:620px">
     <label>Link (news article, Facebook/X post, video, etc.)</label>
@@ -31,8 +14,7 @@
     <label>Anything we should know? <span class="hint">(optional)</span></label>
     <textarea name="note" placeholder="Why this seems worth checking..."></textarea>
     <div style="position:absolute;left:-9999px" aria-hidden="true"><label>Website</label><input type="text" name="website" tabindex="-1" autocomplete="off"></div>
-    <div style="margin-top:16px"><button class="btn" type="submit">Check it</button></div>
-    <p class="hint" style="margin-top:8px">The automated check takes a few seconds &mdash; please wait after you press the button.</p>
+    <div style="margin-top:16px"><button class="btn" type="submit">Send for checking</button></div>
   </form>
 <% } %>
 <%- include('partials/foot') %>

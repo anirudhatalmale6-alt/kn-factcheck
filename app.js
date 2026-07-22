@@ -528,8 +528,8 @@ router.get('/admin/submissions', requireAuth, (req, res) => {
   res.render('admin-submissions', { title: 'All submissions', rows, status, stype });
 });
 
-// Public tip intake - no account needed. Runs the AI so the submitter gets an
-// instant automated read; the item still goes to an editor to approve/publish.
+// Public tip intake - no account needed. Stored straight into the editor queue.
+// The AI is NOT run here (no result shown to the public); an editor analyses & publishes.
 const tipHits = new Map();
 function tipLimiter(req, res, next) {
   const ip = req.ip || 'x', now = Date.now(), WIN = 60 * 60 * 1000, MAX = 8;
@@ -548,12 +548,9 @@ router.post('/submit-tip', tipLimiter, async (req, res) => {
   if (!/^https?:\/\//i.test(url)) {
     return res.status(400).render('submit-tip', { title: 'Submit a tip', error: 'Please enter a valid http(s) link.', done: false, url, result: null });
   }
-  let created;
-  try { created = await createSubmission(url, { note, submitterName }); }
+  try { await createSubmission(url, { note, submitterName }); }
   catch (e) { return res.status(502).render('submit-tip', { title: 'Submit a tip', error: 'Could not fetch that link, but your tip was noted for our team. ' + e.message, done: true, url: '', result: null }); }
-  try { if (!created.existed) await runAnalysis(created.id); } catch (e) { /* result stays null */ }
-  const ai = db.prepare('SELECT suggested_category, reasoning, public_summary, confidence, model_used FROM ai_analyses WHERE submission_id = ? ORDER BY id DESC LIMIT 1').get(created.id);
-  res.render('submit-tip', { title: 'Submit a tip', error: null, done: true, url: '', result: ai || null });
+  res.render('submit-tip', { title: 'Submit a tip', error: null, done: true, url: '', result: null });
 });
 
 // --------------------------------------------------------------------------
