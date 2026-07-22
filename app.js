@@ -10,7 +10,7 @@ const QRCode = require('qrcode');
 
 const db = require('./db');
 const { hashPassword, verifyPassword, settingsGet, settingsSet, listCategories, categoryMap, listSourceTypes, sourceTypeMap, listLanguages } = db;
-const { scrape, normalizeUrl, detectSourceType } = require('./lib/scrape');
+const { scrape, normalizeUrl, detectSourceType, archiveSnapshot } = require('./lib/scrape');
 const { analyse } = require('./lib/analyse');
 const { translate } = require('./lib/translate');
 const { generateSecret, totpVerify, otpauthURL } = require('./lib/auth');
@@ -207,19 +207,21 @@ function insertSubmission(f, opts) {
   if (existing) return { id: existing.id, existed: true };
   const info = db.prepare(`
     INSERT INTO submissions (url, normalized_url, source_domain, raw_title, raw_text, raw_author, status,
-                             submitted_by, source_type, submitter_note, file_path, file_mime, content_kind)
-    VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)
+                             submitted_by, source_type, submitter_note, file_path, file_mime, content_kind, archive_url)
+    VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)
   `).run(f.url || '', f.normalized_url, f.source_domain || '', f.raw_title || '', f.raw_text || '', f.raw_author || '',
-    opts.submittedBy || null, f.source_type || 'other', opts.note || null, f.file_path || null, f.file_mime || null, f.content_kind || 'url');
+    opts.submittedBy || null, f.source_type || 'other', opts.note || null, f.file_path || null, f.file_mime || null, f.content_kind || 'url', f.archive_url || null);
   return { id: info.lastInsertRowid, existed: false };
 }
 
-// Submitted URL (scrape + insert).
+// Submitted URL (scrape + Wayback snapshot + insert).
 async function createSubmission(url, opts) {
   const s = await scrape(url);
+  let archive_url = '';
+  try { archive_url = await archiveSnapshot(url); } catch (e) {}
   return insertSubmission({
     url, normalized_url: normalizeUrl(url), source_domain: s.domain, raw_title: s.title,
-    raw_text: s.text, raw_author: s.author, source_type: detectSourceType(url), content_kind: 'url',
+    raw_text: s.text, raw_author: s.author, source_type: detectSourceType(url), content_kind: 'url', archive_url,
   }, opts);
 }
 
@@ -310,7 +312,7 @@ router.get('/', (req, res) => {
 router.get('/fact-check', (req, res) => res.redirect(BASE + '/'));   // no slug -> the feed
 router.get('/fact-check/:slug', (req, res) => {
   const item = db.prepare(`
-    SELECT r.*, s.url, s.source_domain, s.raw_title, s.raw_author, s.source_type, s.file_path, s.content_kind
+    SELECT r.*, s.url, s.source_domain, s.raw_title, s.raw_author, s.source_type, s.file_path, s.content_kind, s.archive_url
     FROM reviews r JOIN submissions s ON s.id = r.submission_id
     WHERE r.slug = ? AND s.status = 'published'
   `).get(req.params.slug);

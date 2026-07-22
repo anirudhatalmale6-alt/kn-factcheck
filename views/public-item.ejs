@@ -49,6 +49,7 @@
     <% } %>
     <div class="k">Original title</div><div><%= item.raw_title || '(none)' %></div>
     <% if (item.raw_author) { %><div class="k">Author</div><div><%= item.raw_author %></div><% } %>
+    <% if (item.archive_url) { %><div class="k">Archived copy</div><div><a href="<%= item.archive_url %>" rel="nofollow noopener" target="_blank">View on the Wayback Machine &rarr;</a></div><% } %>
   </div>
 </div>
 <%- include('partials/foot') %>
