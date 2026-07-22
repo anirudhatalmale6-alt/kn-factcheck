@@ -6,6 +6,9 @@
   <label>Site name</label>
   <input type="text" name="site_name" value="<%= site_name %>">
 
+  <label>Tagline <span class="hint">(shown under the name on the homepage)</span></label>
+  <input type="text" name="tagline" value="<%= tagline %>">
+
   <label>Logo <span class="hint">(shown in the header instead of the site name; PNG/SVG, transparent background works best)</span></label>
   <% if (logo) { %>
     <div class="card" style="display:inline-block;padding:10px 14px;margin:6px 0">

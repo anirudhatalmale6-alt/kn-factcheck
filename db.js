@@ -214,6 +214,7 @@ ensureSetting('theme', 'light');
 ensureSetting('accent', '#2b6a5b');
 ensureSetting('site_name', 'Kashmir Fact-Check');
 ensureSetting('logo_path', '');
+ensureSetting('tagline', 'Independent, evidence-based checking of claims and media coverage about Kashmir.');
 ensureSetting('about_text', [
   'Kashmir News Fact Check is an editorially independent initiative of the Kashmir Record & Research Centre, dedicated to scrutinising claims, narratives and media coverage related to the Kashmir conflict. Drawing on open-source verification, archival research and on-the-ground testimonies, the project seeks to provide rigorously checked information in a landscape marked by competing state narratives and chronic misinformation.',
   '',

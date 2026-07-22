@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const express = require('express');
 const session = require('express-session');
 const multer = require('multer');
+const helmet = require('helmet');
 const QRCode = require('qrcode');
 
 const db = require('./db');
@@ -22,6 +23,28 @@ app.set('trust proxy', true);
 
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
+
+// Security headers + content-security policy (allows Google Fonts; blocks external scripts/objects/framing).
+app.use(helmet({
+  contentSecurityPolicy: {
+    useDefaults: true,
+    directives: {
+      'default-src': ["'self'"],
+      'script-src': ["'self'", "'unsafe-inline'"],
+      'style-src': ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+      'font-src': ["'self'", 'https://fonts.gstatic.com'],
+      'img-src': ["'self'", 'data:'],
+      'media-src': ["'self'"],
+      'object-src': ["'none'"],
+      'frame-ancestors': ["'self'"],
+      'base-uri': ["'self'"],
+      'form-action': ["'self'"],
+    },
+  },
+  crossOriginResourcePolicy: false,
+  crossOriginEmbedderPolicy: false,
+}));
+
 app.use(express.urlencoded({ extended: true }));
 app.use(BASE + '/static', express.static(path.join(__dirname, 'public')));
 
@@ -38,6 +61,13 @@ const upload = multer({
     },
   }),
   limits: { fileSize: 25 * 1024 * 1024 },
+  // Reject types that can execute in the browser when served (stored-XSS defence).
+  fileFilter: (req, file, cb) => {
+    if (/svg|xml|html?|javascript|ecmascript|x-msdownload|x-sh|x-httpd/i.test(file.mimetype || '')) {
+      return cb(new Error('That file type is not allowed.'));
+    }
+    cb(null, true);
+  },
 });
 function uploadSingle(req, res, next) {
   upload.single('file')(req, res, (err) => {
@@ -47,8 +77,8 @@ function uploadSingle(req, res, next) {
 }
 function uploadLogo(req, res, next) {
   upload.single('logo')(req, res, (err) => {
-    if (err) return res.status(400).render('notfound', { title: 'Upload failed' });
-    if (req.file && !String(req.file.mimetype || '').startsWith('image/')) { req.file = null; } // ignore non-images
+    if (err) req.file = null;   // rejected type / too large -> just skip the logo, keep saving other settings
+    if (req.file && !String(req.file.mimetype || '').startsWith('image/')) { req.file = null; } // images only
     next();
   });
 }
@@ -65,7 +95,7 @@ app.use(session({
   secret: process.env.SESSION_SECRET || 'kn-factcheck-dev-secret-2026',
   resave: false,
   saveUninitialized: false,
-  cookie: { httpOnly: true, sameSite: 'lax', maxAge: 1000 * 60 * 60 * 8 },
+  cookie: { httpOnly: true, sameSite: 'lax', secure: 'auto', maxAge: 1000 * 60 * 60 * 8 },
 }));
 
 // --------------------------------------------------------------------------
@@ -239,7 +269,9 @@ router.get('/', (req, res) => {
   `).all(...args);
   res.render('public-list', {
     title: res.locals.site_name, items, cat, type,
-    seo: { title: res.locals.site_name, description: 'Fact-checks of claims circulating about Kashmir, assessed for sourcing and evidence.', url: absUrl(req, '/'), type: 'website' },
+    tagline: settingsGet('tagline', ''),
+    filtered: !!(cat || type),
+    seo: { title: res.locals.site_name, description: settingsGet('tagline', 'Fact-checks of claims circulating about Kashmir.'), url: absUrl(req, '/'), type: 'website' },
   });
 });
 router.get('/fact-check', (req, res) => res.redirect(BASE + '/'));   // no slug -> the feed
@@ -298,27 +330,48 @@ router.get('/about', (req, res) => {
 // --------------------------------------------------------------------------
 // Auth (with optional 2FA second step)
 // --------------------------------------------------------------------------
+// In-memory login rate limiter (per IP): 10 attempts / 15 min - brute-force defence.
+const loginHits = new Map();
+function loginLimiter(req, res, next) {
+  const ip = req.ip || 'unknown';
+  const now = Date.now(), WINDOW = 15 * 60 * 1000, MAX = 10;
+  let rec = loginHits.get(ip);
+  if (!rec || now - rec.first > WINDOW) { rec = { count: 0, first: now }; loginHits.set(ip, rec); }
+  if (rec.count >= MAX) {
+    const view = String(req.path).includes('2fa') ? 'twofa-verify' : 'login';
+    return res.status(429).render(view, { title: 'Sign in', error: 'Too many attempts. Please wait a few minutes and try again.' });
+  }
+  req._loginRec = rec;
+  next();
+}
+const loginFail = (req) => { if (req._loginRec) req._loginRec.count++; };
+const loginOK = (req) => loginHits.delete(req.ip || 'unknown');
+
 router.get('/admin/login', (req, res) => res.render('login', { title: 'Sign in', error: null }));
-router.post('/admin/login', (req, res) => {
+router.post('/admin/login', loginLimiter, (req, res) => {
   const { username, password } = req.body;
   const u = db.prepare('SELECT * FROM users WHERE username = ? AND active = 1').get(String(username || '').trim());
   if (!u || !verifyPassword(password, u.password_hash)) {
+    loginFail(req);
     return res.status(401).render('login', { title: 'Sign in', error: 'Invalid credentials' });
   }
   if (u.twofa_enabled) {
     req.session.pending2fa = u.id;
     return res.render('twofa-verify', { title: 'Two-factor', error: null });
   }
+  loginOK(req);
   req.session.user = { id: u.id, username: u.username, name: u.name, role: u.role };
   res.redirect(BASE + '/admin');
 });
-router.post('/admin/2fa-verify', (req, res) => {
+router.post('/admin/2fa-verify', loginLimiter, (req, res) => {
   const uid = req.session.pending2fa;
   if (!uid) return res.redirect(BASE + '/admin/login');
   const u = db.prepare('SELECT * FROM users WHERE id = ?').get(uid);
   if (!u || !totpVerify(u.twofa_secret, req.body.code)) {
+    loginFail(req);
     return res.status(401).render('twofa-verify', { title: 'Two-factor', error: 'Incorrect code, try again' });
   }
+  loginOK(req);
   delete req.session.pending2fa;
   req.session.user = { id: u.id, username: u.username, name: u.name, role: u.role };
   res.redirect(BASE + '/admin');
@@ -561,6 +614,7 @@ router.get('/admin/settings', requireRole('settings'), (req, res) => {
     theme: settingsGet('theme', 'light'),
     accent: settingsGet('accent', '#2b6a5b'),
     site_name: settingsGet('site_name', 'Kashmir Fact-Check'),
+    tagline: settingsGet('tagline', ''),
     logo: settingsGet('logo_path', ''),
     about_text: settingsGet('about_text', ''),
     saved: req.query.saved === '1',
@@ -568,6 +622,7 @@ router.get('/admin/settings', requireRole('settings'), (req, res) => {
 });
 router.post('/admin/settings', requireRole('settings'), uploadLogo, (req, res) => {
   settingsSet('site_name', String(req.body.site_name || '').trim() || 'Kashmir Fact-Check');
+  if (typeof req.body.tagline === 'string') settingsSet('tagline', req.body.tagline.trim());
   settingsSet('model', ['claude-opus-4-8', 'claude-sonnet-5', 'claude-haiku-4-5'].includes(req.body.model) ? req.body.model : 'claude-opus-4-8');
   settingsSet('theme', req.body.theme === 'dark' ? 'dark' : 'light');
   settingsSet('accent', /^#[0-9a-f]{6}$/i.test(req.body.accent) ? req.body.accent : '#2b6a5b');
