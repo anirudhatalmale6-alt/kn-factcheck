@@ -155,6 +155,9 @@ function addColumn(table, col, ddl) {
 addColumn('submissions', 'submitted_by', 'submitted_by INTEGER');
 addColumn('submissions', 'source_type', "source_type TEXT DEFAULT 'website'");
 addColumn('submissions', 'submitter_note', 'submitter_note TEXT');
+addColumn('submissions', 'file_path', 'file_path TEXT');       // uploaded media (image/video/audio/doc)
+addColumn('submissions', 'file_mime', 'file_mime TEXT');
+addColumn('submissions', 'content_kind', "content_kind TEXT DEFAULT 'url'"); // url | text | file
 addColumn('reviews', 'reviewed_by', 'reviewed_by INTEGER');
 
 // ---------------------------------------------------------------------------
@@ -186,12 +189,17 @@ if (db.prepare('SELECT COUNT(*) c FROM source_types').get().c === 0) {
     ['tiktok', 'TikTok video', 6],
     ['image', 'Image / photo', 7],
     ['video', 'Video clip', 8],
-    ['text_post', 'Text / message', 9],
-    ['document', 'Document / PDF', 10],
-    ['other', 'Other', 11],
+    ['audio', 'Audio clip', 9],
+    ['text_post', 'Text / message', 10],
+    ['document', 'Document / PDF', 11],
+    ['other', 'Other', 12],
   ];
   const ins = db.prepare('INSERT INTO source_types (key,label,sort_order) VALUES (?,?,?)');
   for (const r of seed) ins.run(...r);
+}
+// Ensure 'audio' exists on older DBs seeded before it was added.
+if (!db.prepare("SELECT 1 FROM source_types WHERE key='audio'").get()) {
+  db.prepare("INSERT INTO source_types (key,label,sort_order) VALUES ('audio','Audio clip',9)").run();
 }
 
 // Default settings

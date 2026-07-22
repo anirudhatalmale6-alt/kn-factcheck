@@ -1,7 +1,10 @@
 'use strict';
 const path = require('path');
+const fs = require('fs');
+const crypto = require('crypto');
 const express = require('express');
 const session = require('express-session');
+const multer = require('multer');
 const QRCode = require('qrcode');
 
 const db = require('./db');
@@ -18,6 +21,35 @@ app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 app.use(express.urlencoded({ extended: true }));
 app.use(BASE + '/static', express.static(path.join(__dirname, 'public')));
+
+// Uploaded media (images/video/audio/docs)
+const UPLOAD_DIR = path.join(__dirname, 'uploads');
+if (!fs.existsSync(UPLOAD_DIR)) fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+app.use(BASE + '/uploads', express.static(UPLOAD_DIR));
+const upload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => cb(null, UPLOAD_DIR),
+    filename: (req, file, cb) => {
+      const ext = path.extname(file.originalname || '').toLowerCase().replace(/[^.a-z0-9]/g, '').slice(0, 10);
+      cb(null, crypto.randomBytes(12).toString('hex') + ext);
+    },
+  }),
+  limits: { fileSize: 25 * 1024 * 1024 },
+});
+function uploadSingle(req, res, next) {
+  upload.single('file')(req, res, (err) => {
+    if (err) return res.status(400).render('admin-submit', { title: 'Submit', error: 'Upload failed: ' + err.message, url: '' });
+    next();
+  });
+}
+function sourceTypeFromMime(m) {
+  m = String(m || '');
+  if (m.startsWith('image/')) return 'image';
+  if (m.startsWith('video/')) return 'video';
+  if (m.startsWith('audio/')) return 'audio';
+  if (/pdf|word|presentation|document|excel|sheet/.test(m)) return 'document';
+  return 'other';
+}
 
 app.use(session({
   secret: process.env.SESSION_SECRET || 'kn-factcheck-dev-secret-2026',
@@ -94,26 +126,67 @@ function absUrl(req, p) {
 // schema.org ClaimReview numeric rating per verdict (1 worst .. 5 best)
 const CLAIM_RATING = { verified: 5, false: 1, misleading: 2, missing_context: 2, unverified: 3, satire: 3, opinion: 3 };
 
-// Store a submitted URL (scrape + insert). Returns {id, existed}. Never runs AI.
-async function createSubmission(url, opts) {
+// Generic insert. f carries the column values; dedups on normalized_url.
+function insertSubmission(f, opts) {
   opts = opts || {};
-  const normalized = normalizeUrl(url);
-  const existing = db.prepare('SELECT id FROM submissions WHERE normalized_url = ?').get(normalized);
+  const existing = db.prepare('SELECT id FROM submissions WHERE normalized_url = ?').get(f.normalized_url);
   if (existing) return { id: existing.id, existed: true };
-  const scraped = await scrape(url);
   const info = db.prepare(`
-    INSERT INTO submissions (url, normalized_url, source_domain, raw_title, raw_text, raw_author, status, submitted_by, source_type, submitter_note)
-    VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)
-  `).run(url, normalized, scraped.domain, scraped.title, scraped.text, scraped.author,
-    opts.submittedBy || null, detectSourceType(url), opts.note || null);
-  return { id: info.lastInsertRowid, existed: false, scraped };
+    INSERT INTO submissions (url, normalized_url, source_domain, raw_title, raw_text, raw_author, status,
+                             submitted_by, source_type, submitter_note, file_path, file_mime, content_kind)
+    VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)
+  `).run(f.url || '', f.normalized_url, f.source_domain || '', f.raw_title || '', f.raw_text || '', f.raw_author || '',
+    opts.submittedBy || null, f.source_type || 'other', opts.note || null, f.file_path || null, f.file_mime || null, f.content_kind || 'url');
+  return { id: info.lastInsertRowid, existed: false };
+}
+
+// Submitted URL (scrape + insert).
+async function createSubmission(url, opts) {
+  const s = await scrape(url);
+  return insertSubmission({
+    url, normalized_url: normalizeUrl(url), source_domain: s.domain, raw_title: s.title,
+    raw_text: s.text, raw_author: s.author, source_type: detectSourceType(url), content_kind: 'url',
+  }, opts);
+}
+
+// Pasted text (no URL). Dedups on a hash of the text.
+function createTextSubmission(title, body, opts) {
+  const hash = crypto.createHash('sha1').update(body).digest('hex').slice(0, 16);
+  return insertSubmission({
+    url: '', normalized_url: 'text:' + hash, source_domain: 'Pasted text',
+    raw_title: title || body.slice(0, 90), raw_text: body, source_type: 'text_post', content_kind: 'text',
+  }, opts);
+}
+
+// Uploaded file (image / video / audio / document). Dedups on file bytes.
+function createFileSubmission(file, opts) {
+  opts = opts || {};
+  const bytes = fs.readFileSync(file.path);
+  const hash = crypto.createHash('sha1').update(bytes).digest('hex').slice(0, 16);
+  return insertSubmission({
+    url: '', normalized_url: 'file:' + hash, source_domain: 'Uploaded file',
+    raw_title: opts.title || file.originalname || 'Uploaded file', raw_text: opts.note || '',
+    source_type: sourceTypeFromMime(file.mimetype), content_kind: 'file',
+    file_path: '/uploads/' + file.filename, file_mime: file.mimetype,
+  }, opts);
 }
 
 // Run Claude analysis on a stored submission (idempotent-ish: adds a fresh analysis row).
 async function runAnalysis(submissionId) {
   const sub = db.prepare('SELECT * FROM submissions WHERE id = ?').get(submissionId);
   if (!sub) return;
+  // Claude can't watch video / hear audio - leave those for a human unless a text description was given.
+  const untranscribable = (sub.source_type === 'video' || sub.source_type === 'audio') && !(sub.raw_text && sub.raw_text.trim());
+  if (untranscribable) return;
   const policy = db.prepare('SELECT * FROM policies WHERE is_active = 1').get();
+  // Images -> Claude vision.
+  let imageBase64 = null, imageMediaType = null;
+  if (sub.source_type === 'image' && sub.file_path) {
+    try {
+      imageBase64 = fs.readFileSync(path.join(__dirname, sub.file_path)).toString('base64');
+      imageMediaType = sub.file_mime || 'image/png';
+    } catch (e) {}
+  }
   let a;
   try {
     a = await analyse({
@@ -122,6 +195,7 @@ async function runAnalysis(submissionId) {
       apiKey: settingsGet('anthropic_api_key', ''),
       model: settingsGet('model', 'claude-opus-4-8'),
       categories: listCategories(true).map((c) => c.key),
+      imageBase64, imageMediaType,
     });
   } catch (e) {
     const first = (listCategories(true)[0] || {}).key || 'unverified';
@@ -159,7 +233,7 @@ router.get('/', (req, res) => {
 });
 router.get('/fact-check/:slug', (req, res) => {
   const item = db.prepare(`
-    SELECT r.*, s.url, s.source_domain, s.raw_title, s.raw_author, s.source_type
+    SELECT r.*, s.url, s.source_domain, s.raw_title, s.raw_author, s.source_type, s.file_path, s.content_kind
     FROM reviews r JOIN submissions s ON s.id = r.submission_id
     WHERE r.slug = ? AND s.status = 'published'
   `).get(req.params.slug);
@@ -252,18 +326,30 @@ router.get('/admin', requireAuth, (req, res) => {
 router.get('/admin/submit', requireRole('submit'), (req, res) =>
   res.render('admin-submit', { title: 'Submit a URL', error: null, url: '' }));
 
-router.post('/admin/submit', requireRole('submit'), async (req, res) => {
-  const url = String(req.body.url || '').trim();
-  if (!/^https?:\/\//i.test(url)) {
-    return res.status(400).render('admin-submit', { title: 'Submit a URL', error: 'Please enter a valid http(s) URL.', url });
-  }
+router.post('/admin/submit', requireRole('submit'), uploadSingle, async (req, res) => {
+  const kind = ['url', 'text', 'file'].includes(req.body.kind) ? req.body.kind : 'url';
   const afterSubmit = (id) => can(req.session.user, 'review') ? (BASE + '/admin/review/' + id) : (BASE + '/admin?submitted=1');
-  let created;
-  try { created = await createSubmission(url, { submittedBy: req.session.user.id }); }
-  catch (e) { return res.status(502).render('admin-submit', { title: 'Submit a URL', error: 'Could not fetch that URL: ' + e.message, url }); }
-  if (created.existed) return res.redirect(afterSubmit(created.id));
-  await runAnalysis(created.id);
-  res.redirect(afterSubmit(created.id));
+  const err = (msg, code) => res.status(code || 400).render('admin-submit', { title: 'Submit', error: msg, url: kind === 'url' ? String(req.body.url || '') : '' });
+  try {
+    let created;
+    if (kind === 'text') {
+      const body = String(req.body.text || '').trim();
+      if (!body) return err('Please paste some text to check.');
+      created = createTextSubmission(String(req.body.title || '').trim(), body, { submittedBy: req.session.user.id });
+    } else if (kind === 'file') {
+      if (!req.file) return err('Please choose a file to upload.');
+      created = createFileSubmission(req.file, { submittedBy: req.session.user.id, title: String(req.body.title || '').trim(), note: String(req.body.text || '').trim() });
+    } else {
+      const url = String(req.body.url || '').trim();
+      if (!/^https?:\/\//i.test(url)) return err('Please enter a valid http(s) URL.');
+      created = await createSubmission(url, { submittedBy: req.session.user.id });
+    }
+    if (created.existed) return res.redirect(afterSubmit(created.id));
+    await runAnalysis(created.id);
+    res.redirect(afterSubmit(created.id));
+  } catch (e) {
+    return err('Could not process that submission: ' + e.message, 502);
+  }
 });
 
 // On-demand analysis for stored items (e.g. public tips) - editors/admin.

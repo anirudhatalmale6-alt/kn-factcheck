@@ -7,6 +7,18 @@
 
 <h1 style="margin-top:12px"><%= item.public_summary %></h1>
 
+<% if (item.file_path) { %>
+  <div style="margin:16px 0">
+    <% if (item.source_type==='image') { %>
+      <img src="<%= base %><%= item.file_path %>" alt="checked image" style="max-width:100%;border-radius:12px;border:1px solid var(--line)">
+    <% } else if (item.source_type==='video') { %>
+      <video src="<%= base %><%= item.file_path %>" controls style="max-width:100%;border-radius:12px"></video>
+    <% } else if (item.source_type==='audio') { %>
+      <audio src="<%= base %><%= item.file_path %>" controls style="width:100%"></audio>
+    <% } %>
+  </div>
+<% } %>
+
 <% if (claims && claims.length) { %>
   <h2>Claim assessed</h2>
   <ul class="claims"><% claims.forEach(function(c){ %><li><%= c %></li><% }) %></ul>
@@ -19,7 +31,11 @@
 
 <div class="card" style="margin-top:24px">
   <div class="kv">
-    <div class="k">Original source</div><div><a href="<%= item.url %>" rel="nofollow noopener" target="_blank"><%= item.source_domain || item.url %></a></div>
+    <% if (item.url) { %>
+      <div class="k">Original source</div><div><a href="<%= item.url %>" rel="nofollow noopener" target="_blank"><%= item.source_domain || item.url %></a></div>
+    <% } else { %>
+      <div class="k">Source</div><div><%= item.source_domain || 'Direct submission' %></div>
+    <% } %>
     <div class="k">Original title</div><div><%= item.raw_title || '(none)' %></div>
     <% if (item.raw_author) { %><div class="k">Author</div><div><%= item.raw_author %></div><% } %>
   </div>

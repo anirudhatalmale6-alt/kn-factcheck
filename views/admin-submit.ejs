@@ -1,11 +1,52 @@
 <%- include('partials/head') %>
-<h1>Submit a URL</h1>
-<p class="sub">Paste a news or social link. We fetch it, run it against the active editorial policy, and drop it in the review queue.</p>
+<h1>Submit for checking</h1>
+<p class="sub">Add something to check &mdash; a link, pasted text, or an uploaded image / video / audio file.</p>
 <% if (error) { %><div class="err"><%= error %></div><% } %>
-<form method="post" action="<%= base %>/admin/submit" style="max-width:640px">
-  <label>Article / post URL</label>
-  <input type="url" name="url" placeholder="https://example.com/story" value="<%= url %>" autofocus>
-  <div class="hint">Best results on news article pages. Social posts fetch limited text by design.</div>
-  <div style="margin-top:18px"><button class="btn" type="submit">Fetch &amp; analyse</button></div>
+
+<div class="inline" style="margin-bottom:16px" id="tabs">
+  <button type="button" class="btn ghost small" data-kind="url">Link (URL)</button>
+  <button type="button" class="btn ghost small" data-kind="text">Paste text</button>
+  <button type="button" class="btn ghost small" data-kind="file">Upload file</button>
+</div>
+
+<form method="post" action="<%= base %>/admin/submit" enctype="multipart/form-data" style="max-width:640px">
+  <input type="hidden" name="kind" id="kind" value="url">
+
+  <div class="mode mode-url">
+    <label>Article / post URL</label>
+    <input type="url" name="url" placeholder="https://example.com/story" value="<%= url %>">
+    <div class="hint">News pages work best. Facebook/X/YouTube links auto-tag their type.</div>
+  </div>
+
+  <div class="mode mode-text" style="display:none">
+    <label>Title <span class="hint">(optional)</span></label>
+    <input type="text" name="title" placeholder="Short label for this claim">
+    <label>Text to check</label>
+    <textarea name="text" style="min-height:150px" placeholder="Paste the claim, message, or post text here..."></textarea>
+  </div>
+
+  <div class="mode mode-file" style="display:none">
+    <label>File <span class="hint">(image, video, audio, or document &mdash; up to 25 MB)</span></label>
+    <input type="file" name="file" accept="image/*,video/*,audio/*,.pdf,.doc,.docx">
+    <label>Note / context <span class="hint">(optional &mdash; for video &amp; audio, describe the claim so it can be checked)</span></label>
+    <textarea name="text" placeholder="What does this show/claim?"></textarea>
+    <div class="hint">Images are read by the AI (vision). Video &amp; audio are stored for a human to review; add a description and the AI will assess that.</div>
+  </div>
+
+  <div style="margin-top:18px"><button class="btn" type="submit">Submit &amp; analyse</button></div>
 </form>
+
+<script>
+(function(){
+  var kind=document.getElementById('kind');
+  function show(k){
+    kind.value=k;
+    document.querySelectorAll('.mode').forEach(function(m){ m.style.display='none'; });
+    document.querySelector('.mode-'+k).style.display='';
+    document.querySelectorAll('#tabs button').forEach(function(b){ b.className='btn '+(b.dataset.kind===k?'':'ghost')+' small'; });
+  }
+  document.querySelectorAll('#tabs button').forEach(function(b){ b.addEventListener('click',function(){ show(b.dataset.kind); }); });
+  show('url');
+})();
+</script>
 <%- include('partials/foot') %>
