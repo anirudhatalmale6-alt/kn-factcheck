@@ -346,6 +346,15 @@ function loginLimiter(req, res, next) {
 }
 const loginFail = (req) => { if (req._loginRec) req._loginRec.count++; };
 const loginOK = (req) => loginHits.delete(req.ip || 'unknown');
+// Regenerate the session on successful login (session-fixation defence).
+function finishLogin(req, res, u) {
+  loginOK(req);
+  req.session.regenerate((err) => {
+    if (err) return res.status(500).render('login', { title: 'Sign in', error: 'Session error - please try again.' });
+    req.session.user = { id: u.id, username: u.username, name: u.name, role: u.role };
+    res.redirect(BASE + '/admin');
+  });
+}
 
 router.get('/admin/login', (req, res) => res.render('login', { title: 'Sign in', error: null }));
 router.post('/admin/login', loginLimiter, (req, res) => {
@@ -359,9 +368,7 @@ router.post('/admin/login', loginLimiter, (req, res) => {
     req.session.pending2fa = u.id;
     return res.render('twofa-verify', { title: 'Two-factor', error: null });
   }
-  loginOK(req);
-  req.session.user = { id: u.id, username: u.username, name: u.name, role: u.role };
-  res.redirect(BASE + '/admin');
+  finishLogin(req, res, u);
 });
 router.post('/admin/2fa-verify', loginLimiter, (req, res) => {
   const uid = req.session.pending2fa;
@@ -371,10 +378,7 @@ router.post('/admin/2fa-verify', loginLimiter, (req, res) => {
     loginFail(req);
     return res.status(401).render('twofa-verify', { title: 'Two-factor', error: 'Incorrect code, try again' });
   }
-  loginOK(req);
-  delete req.session.pending2fa;
-  req.session.user = { id: u.id, username: u.username, name: u.name, role: u.role };
-  res.redirect(BASE + '/admin');
+  finishLogin(req, res, u);
 });
 router.post('/admin/logout', (req, res) => req.session.destroy(() => res.redirect(BASE + '/')));
 
